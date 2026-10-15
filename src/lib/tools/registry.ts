@@ -9,6 +9,7 @@ import { ActionRiskLevel } from '@/types';
 import { MockGmailAdapter } from '@/lib/integrations/gmail/mock';
 import { GmailService } from '@/lib/integrations/gmail/service';
 import { MockCalendarAdapter } from '@/lib/integrations/calendar/mock';
+import { GoogleCalendarService } from '@/lib/integrations/calendar/service';
 import { 
   ListEventsArgsSchema, 
   CreateEventArgsSchema, 
@@ -195,13 +196,13 @@ export const SchedulerEvaluateJobsArgsSchema = z.object({
 
 export interface AdaptersBundle {
   gmail?: MockGmailAdapter | GmailService;
-  calendar?: MockCalendarAdapter;
+  calendar?: MockCalendarAdapter | GoogleCalendarService;
   files?: SandboxedFileService;
 }
 
 export interface InitializedAdaptersBundle {
   gmail: MockGmailAdapter | GmailService;
-  calendar: MockCalendarAdapter;
+  calendar: MockCalendarAdapter | GoogleCalendarService;
   files: SandboxedFileService;
 }
 

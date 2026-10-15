@@ -25,11 +25,11 @@ export const CreateEventArgsSchema = z.object({
   description: z.string().optional(),
   startTime: z.string().min(1, 'Start time is required (ISO format).'),
   endTime: z.string().min(1, 'End time is required (ISO format).'),
-  timeZone: z.string().default('America/New_York'),
-  attendees: z.array(z.string().email()).default([]),
+  timeZone: z.string().optional().default('America/New_York'),
+  attendees: z.array(z.string().email()).optional().default([]),
   location: z.string().optional()
 });
-export type CreateEventArgs = z.infer<typeof CreateEventArgsSchema>;
+export type CreateEventArgs = z.input<typeof CreateEventArgsSchema>;
 
 export const RescheduleEventArgsSchema = z.object({
   eventId: z.string().min(1, 'Event ID is required.'),

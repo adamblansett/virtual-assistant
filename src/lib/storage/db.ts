@@ -31,9 +31,11 @@ interface AppState {
   mobileApprovals: Record<string, { planId: string; token: string; createdAt: string; status: 'pending' | 'approved' | 'rejected' }>;
   integrationConfig: {
     useMockGmail: boolean;
+    useMockCalendar?: boolean;
     aiProvider: string;
     geminiApiKey?: string;
     openaiApiKey?: string;
+    telegramBotToken?: string;
   };
 }
 
@@ -308,6 +310,7 @@ export class AppStorage {
       mobileApprovals: {},
       integrationConfig: {
         useMockGmail: true,
+        useMockCalendar: true,
         aiProvider: 'mock'
       }
     };

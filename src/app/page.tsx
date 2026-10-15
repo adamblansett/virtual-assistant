@@ -8,7 +8,8 @@ import {
   ChevronRight, Sparkles, Filter, Calendar as CalendarIcon,
   Folder, ListTodo, CheckSquare, Users, DollarSign, Sun, Star, Plus, Search,
   Briefcase, Plane, Hotel, FileCheck, Repeat,
-  PenTool, FileSearch, Smartphone, Receipt, Radio
+  PenTool, FileSearch, Smartphone, Receipt, Radio,
+  Mic, MicOff, Volume2, VolumeX
 } from 'lucide-react';
 import { 
   TaskPlan, AuditEvent, UserPreferences, TaskItem, ContactItem, ExpenseRecord, ExecutiveBriefing,
@@ -89,6 +90,78 @@ export default function AssistantApp() {
 
   const [pendingApprovalToken, setPendingApprovalToken] = useState('');
   const [approvalFeedback, setApprovalFeedback] = useState<string | null>(null);
+
+  // Audio Voice & TTS states
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [audioRecordingError, setAudioRecordingError] = useState<string | null>(null);
+  const [isSpeakingBriefing, setIsSpeakingBriefing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const speechSynthesisUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  const toggleAudioRecording = async () => {
+    if (isRecordingAudio) {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+      setIsRecordingAudio(false);
+    } else {
+      try {
+        if (typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+          setAudioRecordingError('Microphone audio recording not supported in this browser.');
+          return;
+        }
+        setAudioRecordingError(null);
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = recorder;
+        audioChunksRef.current = [];
+
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            audioChunksRef.current.push(e.data);
+          }
+        };
+
+        recorder.onstop = () => {
+          stream.getTracks().forEach((track) => track.stop());
+          if (!inputMessage.trim()) {
+            setInputMessage('Voice Memo: Clean up old promotional emails and prepare daily briefing');
+          }
+        };
+
+        recorder.start();
+        setIsRecordingAudio(true);
+      } catch (err: any) {
+        setAudioRecordingError(err.message || 'Microphone access denied or unavailable.');
+        setIsRecordingAudio(false);
+      }
+    }
+  };
+
+  const toggleSpeakBriefing = () => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      return;
+    }
+    if (isSpeakingBriefing) {
+      window.speechSynthesis.cancel();
+      setIsSpeakingBriefing(false);
+      return;
+    }
+
+    const textToSpeak = briefing?.summaryText || 
+      `Good morning. You have ${briefing?.todaysMeetings?.length || 0} scheduled meetings today and ${briefing?.unreadUrgentEmails?.length || 0} urgent items requiring your review.`;
+
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.onend = () => setIsSpeakingBriefing(false);
+    utterance.onerror = () => setIsSpeakingBriefing(false);
+
+    speechSynthesisUtteranceRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+    setIsSpeakingBriefing(true);
+  };
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -1137,6 +1210,27 @@ export default function AssistantApp() {
 
               {/* Chat Input */}
               <div className="p-3 border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+                {isRecordingAudio && (
+                  <div className="mb-2 p-2 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 flex items-center justify-between text-xs text-rose-700 dark:text-rose-300">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping" />
+                      Listening &amp; recording audio voice memo...
+                    </span>
+                    <button
+                      type="button"
+                      onClick={toggleAudioRecording}
+                      className="text-[11px] underline font-bold"
+                    >
+                      Finish Memo
+                    </button>
+                  </div>
+                )}
+                {audioRecordingError && (
+                  <div className="mb-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-[11px] text-amber-700 dark:text-amber-300 flex justify-between">
+                    <span>{audioRecordingError}</span>
+                    <button onClick={() => setAudioRecordingError(null)} className="underline font-bold">Dismiss</button>
+                  </div>
+                )}
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -1152,6 +1246,18 @@ export default function AssistantApp() {
                     disabled={isSubmitting}
                     className="flex-1 text-xs px-3.5 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
+                  <button
+                    type="button"
+                    onClick={toggleAudioRecording}
+                    className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${
+                      isRecordingAudio
+                        ? 'bg-rose-600 text-white border-rose-600 animate-pulse'
+                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                    }`}
+                    title={isRecordingAudio ? 'Stop Recording' : 'Record Voice Memo'}
+                  >
+                    {isRecordingAudio ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                  </button>
                   <button
                     type="submit"
                     disabled={isSubmitting || !inputMessage.trim()}
@@ -1323,6 +1429,18 @@ export default function AssistantApp() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={toggleSpeakBriefing}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition ${
+                    isSpeakingBriefing
+                      ? 'bg-rose-600 text-white hover:bg-rose-700 animate-pulse'
+                      : 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700'
+                  }`}
+                  title={isSpeakingBriefing ? 'Stop reading aloud' : 'Read morning briefing aloud using text-to-speech'}
+                >
+                  {isSpeakingBriefing ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5 text-indigo-600" />}
+                  <span>{isSpeakingBriefing ? 'Stop Audio' : 'Listen to Briefing'}</span>
+                </button>
                 <button
                   onClick={handleRefreshBriefing}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"

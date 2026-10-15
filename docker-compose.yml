@@ -1,21 +1,47 @@
-version: '3.8'
-
 services:
-  assistant:
+  virtual-assistant-web:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: ai-virtual-assistant
+    container_name: virtual_assistant_web
+    restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${PORT:-3000}:3000"
     environment:
       - NODE_ENV=production
-      - AI_PROVIDER=mock # Options: mock | gemini | openai
+      - PORT=3000
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
-      - GOOGLE_REDIRECT_URI=http://localhost:3000/api/integrations/gmail/callback
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost:3000/api/integrations/gmail/callback}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
     volumes:
       - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  virtual-assistant-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: virtual_assistant_scheduler
     restart: unless-stopped
+    command: ["sh", "-c", "while true; do npm run scheduler; sleep 300; done"]
+    environment:
+      - NODE_ENV=production
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - virtual-assistant-web
+
+volumes:
+  data:
+    driver: local

@@ -18,6 +18,7 @@ import { MockGmailAdapter } from '@/lib/integrations/gmail/mock';
 import { GmailService } from '@/lib/integrations/gmail/service';
 
 import { MockCalendarAdapter } from '@/lib/integrations/calendar/mock';
+import { GoogleCalendarService } from '@/lib/integrations/calendar/service';
 import { SandboxedFileService } from '@/lib/integrations/files/service';
 import { InitializedAdaptersBundle } from '@/lib/tools/registry';
 
@@ -41,10 +42,18 @@ export class WorkflowExecutionEngine {
     return new GmailService();
   }
 
+  public static getCalendarAdapter(): MockCalendarAdapter | GoogleCalendarService {
+    const config = AppStorage.getIntegrationConfig();
+    if (config.useMockCalendar ?? config.useMockGmail) {
+      return this.defaultCalendar;
+    }
+    return new GoogleCalendarService();
+  }
+
   public static getAdaptersBundle(): InitializedAdaptersBundle {
     return {
       gmail: this.getGmailAdapter(),
-      calendar: this.defaultCalendar,
+      calendar: this.getCalendarAdapter(),
       files: this.defaultFiles
     };
   }
