@@ -1,14 +1,24 @@
 /**
  * Central Tool Registry.
- * Defines typed tool schemas, permission requirements, risk levels, and dispatchers.
+ * Defines typed tool schemas, permission requirements, risk levels, and dispatchers
+ * for Gmail, Google Calendar, and Sandboxed File System.
  */
 
 import { z } from 'zod';
 import { ActionRiskLevel } from '@/types';
 import { MockGmailAdapter } from '@/lib/integrations/gmail/mock';
 import { GmailService } from '@/lib/integrations/gmail/service';
+import { MockCalendarAdapter } from '@/lib/integrations/calendar/mock';
+import { 
+  ListEventsArgsSchema, 
+  CreateEventArgsSchema, 
+  RescheduleEventArgsSchema, 
+  CancelEventArgsSchema 
+} from '@/lib/integrations/calendar/types';
+import { SandboxedFileService } from '@/lib/integrations/files/service';
 import { PolicyEngine } from '@/lib/policy/engine';
 import { UserPreferences } from '@/types';
+import { AppStorage } from '@/lib/storage/db';
 
 export interface ToolDefinition {
   name: string;
@@ -20,6 +30,7 @@ export interface ToolDefinition {
   approvalRequiredByDefault: boolean;
 }
 
+// --- Gmail Schemas ---
 export const GmailSearchArgsSchema = z.object({
   query: z.string().optional(),
   olderThanYears: z.number().optional(),
@@ -62,10 +73,45 @@ export const GmailVerifyStateArgsSchema = z.object({
   expectedLabel: z.string().default('TRASH')
 });
 
+// --- File Schemas ---
+export const FileListArgsSchema = z.object({
+  subDir: z.string().default('')
+});
+
+export const FileReadArgsSchema = z.object({
+  filePath: z.string().min(1),
+  maxBytes: z.number().default(50000)
+});
+
+export const FileWriteArgsSchema = z.object({
+  filePath: z.string().min(1),
+  content: z.string()
+});
+
+export const FileMoveArgsSchema = z.object({
+  sourcePath: z.string().min(1),
+  destPath: z.string().min(1)
+});
+
+export interface AdaptersBundle {
+  gmail?: MockGmailAdapter | GmailService;
+  calendar?: MockCalendarAdapter;
+  files?: SandboxedFileService;
+}
+
+export interface InitializedAdaptersBundle {
+  gmail: MockGmailAdapter | GmailService;
+  calendar: MockCalendarAdapter;
+  files: SandboxedFileService;
+}
+
 export class ToolRegistry {
   private static tools: Map<string, ToolDefinition> = new Map();
+  private static defaultCalendar = new MockCalendarAdapter();
+  private static defaultFiles = new SandboxedFileService();
 
   static {
+    // --- Gmail Tools ---
     this.registerTool({
       name: 'gmail_search',
       integration: 'gmail',
@@ -145,6 +191,88 @@ export class ToolRegistry {
       requiredPermission: 'gmail.readonly',
       approvalRequiredByDefault: false
     });
+
+    // --- Google Calendar Tools ---
+    this.registerTool({
+      name: 'calendar_list_events',
+      integration: 'google_calendar',
+      description: 'List scheduled calendar events within a given time range.',
+      schema: ListEventsArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'calendar.readonly',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'calendar_create_event',
+      integration: 'google_calendar',
+      description: 'Create a new calendar event with summary, time, and optional attendees.',
+      schema: CreateEventArgsSchema,
+      riskLevel: 'consequential',
+      requiredPermission: 'calendar.events',
+      approvalRequiredByDefault: true
+    });
+
+    this.registerTool({
+      name: 'calendar_reschedule_event',
+      integration: 'google_calendar',
+      description: 'Reschedule an existing calendar event to a new start and end time.',
+      schema: RescheduleEventArgsSchema,
+      riskLevel: 'reversible_write',
+      requiredPermission: 'calendar.events',
+      approvalRequiredByDefault: true
+    });
+
+    this.registerTool({
+      name: 'calendar_cancel_event',
+      integration: 'google_calendar',
+      description: 'Cancel a calendar event.',
+      schema: CancelEventArgsSchema,
+      riskLevel: 'consequential',
+      requiredPermission: 'calendar.events',
+      approvalRequiredByDefault: true
+    });
+
+    // --- Sandboxed File Tools ---
+    this.registerTool({
+      name: 'files_list',
+      integration: 'sandboxed_files',
+      description: 'List files and folders within the safe workspace directory.',
+      schema: FileListArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'files.read',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'files_read',
+      integration: 'sandboxed_files',
+      description: 'Read contents of a text file inside the safe workspace.',
+      schema: FileReadArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'files.read',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'files_write',
+      integration: 'sandboxed_files',
+      description: 'Write text content to a file inside the safe workspace.',
+      schema: FileWriteArgsSchema,
+      riskLevel: 'reversible_write',
+      requiredPermission: 'files.write',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'files_move',
+      integration: 'sandboxed_files',
+      description: 'Move or organize a file within the safe workspace directory.',
+      schema: FileMoveArgsSchema,
+      riskLevel: 'reversible_write',
+      requiredPermission: 'files.write',
+      approvalRequiredByDefault: true
+    });
   }
 
   public static registerTool(tool: ToolDefinition): void {
@@ -160,13 +288,13 @@ export class ToolRegistry {
   }
 
   /**
-   * Executes a tool against an integration adapter with argument validation and safety checks.
+   * Executes a tool with schema validation and safe dispatch.
    */
   public static async executeTool(
     toolName: string,
     rawArgs: Record<string, any>,
-    adapter: MockGmailAdapter | GmailService,
-    preferences: UserPreferences
+    adapterOrBundle: AdaptersBundle | MockGmailAdapter | GmailService,
+    preferences?: UserPreferences
   ): Promise<any> {
     const tool = this.getTool(toolName);
     if (!tool) {
@@ -176,20 +304,35 @@ export class ToolRegistry {
     // 1. Strict schema validation
     tool.schema.parse(rawArgs);
 
+    // Normalize adapters
+    let bundle: AdaptersBundle;
+    if ('metadata' in adapterOrBundle) {
+      bundle = { gmail: adapterOrBundle as MockGmailAdapter | GmailService };
+    } else {
+      bundle = adapterOrBundle;
+    }
+
+    const gmail = bundle.gmail;
+    const calendar = bundle.calendar || this.defaultCalendar;
+    const files = bundle.files || this.defaultFiles;
+    const userPrefs = preferences || AppStorage.getPreferences();
+
     // 2. Dispatch with typed schema parsing
     switch (toolName) {
+      // --- Gmail Tools ---
       case 'gmail_search': {
+        if (!gmail) throw new Error('Gmail adapter not configured.');
         const args = GmailSearchArgsSchema.parse(rawArgs);
-        return adapter.searchMessages(args);
+        return gmail.searchMessages(args);
       }
 
       case 'gmail_preview_cleanup': {
+        if (!gmail) throw new Error('Gmail adapter not configured.');
         const args = GmailSearchArgsSchema.parse(rawArgs);
-        const searchRes = await adapter.searchMessages(args);
-        // Apply protected categories filter
+        const searchRes = await gmail.searchMessages(args);
         const { safeMessages, protectedMessages } = PolicyEngine.filterProtectedMessages(
           searchRes.messages,
-          preferences
+          userPrefs
         );
         return {
           totalFound: searchRes.messages.length,
@@ -202,37 +345,43 @@ export class ToolRegistry {
       }
 
       case 'gmail_trash_messages': {
+        if (!gmail) throw new Error('Gmail adapter not configured.');
         const args = GmailTrashArgsSchema.parse(rawArgs);
-        return adapter.trashMessages(args.messageIds);
+        return gmail.trashMessages(args.messageIds);
       }
 
       case 'gmail_archive_messages': {
+        if (!gmail) throw new Error('Gmail adapter not configured.');
         const args = GmailArchiveArgsSchema.parse(rawArgs);
-        return adapter.archiveMessages(args.messageIds);
+        return gmail.archiveMessages(args.messageIds);
       }
 
       case 'gmail_apply_label': {
+        if (!gmail) throw new Error('Gmail adapter not configured.');
         const args = GmailApplyLabelArgsSchema.parse(rawArgs);
-        return adapter.applyLabels(args.messageIds, args.addLabelIds, args.removeLabelIds);
+        return gmail.applyLabels(args.messageIds, args.addLabelIds, args.removeLabelIds);
       }
 
       case 'gmail_create_draft': {
+        if (!gmail) throw new Error('Gmail adapter not configured.');
         const args = GmailDraftArgsSchema.parse(rawArgs);
-        return adapter.createDraft(args.to, args.subject, args.body);
+        return gmail.createDraft(args.to, args.subject, args.body);
       }
 
       case 'gmail_send_message': {
+        if (!gmail) throw new Error('Gmail adapter not configured.');
         const args = GmailSendArgsSchema.parse(rawArgs);
-        return adapter.sendMessage(args.to, args.subject, args.body);
+        return gmail.sendMessage(args.to, args.subject, args.body);
       }
 
       case 'gmail_verify_trash_state': {
+        if (!gmail) throw new Error('Gmail adapter not configured.');
         const args = GmailVerifyStateArgsSchema.parse(rawArgs);
         const expectedLabel = args.expectedLabel || 'TRASH';
         const verificationResults: Array<{ id: string; verified: boolean; labels: string[] }> = [];
 
         for (const id of args.messageIds) {
-          const detail = await adapter.getMessageDetails(id);
+          const detail = await gmail.getMessageDetails(id);
           const hasLabel = detail ? detail.labelIds.includes(expectedLabel) : false;
           verificationResults.push({
             id,
@@ -248,6 +397,48 @@ export class ToolRegistry {
           totalCount: args.messageIds.length,
           details: verificationResults
         };
+      }
+
+      // --- Google Calendar Tools ---
+      case 'calendar_list_events': {
+        const args = ListEventsArgsSchema.parse(rawArgs);
+        return calendar.listEvents(args);
+      }
+
+      case 'calendar_create_event': {
+        const args = CreateEventArgsSchema.parse(rawArgs);
+        return calendar.createEvent(args);
+      }
+
+      case 'calendar_reschedule_event': {
+        const args = RescheduleEventArgsSchema.parse(rawArgs);
+        return calendar.rescheduleEvent(args);
+      }
+
+      case 'calendar_cancel_event': {
+        const args = CancelEventArgsSchema.parse(rawArgs);
+        return calendar.cancelEvent(args.eventId);
+      }
+
+      // --- Sandboxed File Tools ---
+      case 'files_list': {
+        const args = FileListArgsSchema.parse(rawArgs);
+        return files.listFiles(args.subDir);
+      }
+
+      case 'files_read': {
+        const args = FileReadArgsSchema.parse(rawArgs);
+        return files.readFile(args.filePath, args.maxBytes);
+      }
+
+      case 'files_write': {
+        const args = FileWriteArgsSchema.parse(rawArgs);
+        return files.writeFile(args.filePath, args.content);
+      }
+
+      case 'files_move': {
+        const args = FileMoveArgsSchema.parse(rawArgs);
+        return files.moveFile(args.sourcePath, args.destPath);
       }
 
       default:

@@ -21,6 +21,9 @@
 # runtime data
 /data/*.json
 !/data/.gitkeep
+/data/workspace/*
+!/data/workspace/.gitkeep
+/data/test_sandbox*
 
 # misc
 .DS_Store

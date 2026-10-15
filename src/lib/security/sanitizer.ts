@@ -7,8 +7,8 @@
 
 export class SecuritySanitizer {
   private static readonly INJECTION_PATTERNS = [
-    /ignore\s+(previous|all)\s+instructions/i,
-    /disregard\s+(previous|all)\s+prompts/i,
+    /ignore\s+((all|previous)\s+)+instructions/i,
+    /disregard\s+((all|previous)\s+)+prompts/i,
     /system\s*:\s*/i,
     /assistant\s*:\s*/i,
     /you\s+are\s+now\s+in\s+developer\s+mode/i,

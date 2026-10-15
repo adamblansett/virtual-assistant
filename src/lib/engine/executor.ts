@@ -17,8 +17,21 @@ import { AppStorage } from '@/lib/storage/db';
 import { MockGmailAdapter } from '@/lib/integrations/gmail/mock';
 import { GmailService } from '@/lib/integrations/gmail/service';
 
+import { MockCalendarAdapter } from '@/lib/integrations/calendar/mock';
+import { SandboxedFileService } from '@/lib/integrations/files/service';
+import { InitializedAdaptersBundle } from '@/lib/tools/registry';
+
 export class WorkflowExecutionEngine {
   private static defaultMockGmail = new MockGmailAdapter();
+  private static defaultCalendar = new MockCalendarAdapter();
+  private static defaultFiles = new SandboxedFileService();
+
+  public static reset(): void {
+    this.defaultMockGmail = new MockGmailAdapter();
+    this.defaultCalendar = new MockCalendarAdapter();
+    this.defaultFiles = new SandboxedFileService();
+    IdempotencyManager.clear();
+  }
 
   public static getGmailAdapter(): MockGmailAdapter | GmailService {
     const config = AppStorage.getIntegrationConfig();
@@ -26,6 +39,14 @@ export class WorkflowExecutionEngine {
       return this.defaultMockGmail;
     }
     return new GmailService();
+  }
+
+  public static getAdaptersBundle(): InitializedAdaptersBundle {
+    return {
+      gmail: this.getGmailAdapter(),
+      calendar: this.defaultCalendar,
+      files: this.defaultFiles
+    };
   }
 
   /**
@@ -38,7 +59,7 @@ export class WorkflowExecutionEngine {
     approvedActionIds: string[] = []
   ): Promise<{ plan: TaskPlan; summary: ExecutionSummary }> {
     const preferences: UserPreferences = AppStorage.getPreferences();
-    const adapter = this.getGmailAdapter();
+    const adapters = this.getAdaptersBundle();
 
     let succeeded = 0;
     let partiallySucceeded = 0;
@@ -135,7 +156,7 @@ export class WorkflowExecutionEngine {
         const toolResult = await ToolRegistry.executeTool(
           action.toolName,
           action.arguments,
-          adapter,
+          adapters,
           preferences
         );
 
@@ -164,7 +185,7 @@ export class WorkflowExecutionEngine {
         }
 
         // Authoritative verification
-        const verification = await ResultVerifier.verifyAction(action, adapter);
+        const verification = await ResultVerifier.verifyAction(action, adapters);
         action.verificationStatus = verification.verified ? 'verified' : 'failed';
         action.verificationDetails = verification.details.join('; ');
 

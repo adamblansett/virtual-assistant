@@ -46,8 +46,72 @@ export class MockAIProvider implements IAIProviderAdapter {
           body: 'Here is the update you asked for.'
         }
       });
+    } else if (lower.includes('calendar') || lower.includes('meetings') || lower.includes('schedule')) {
+      if (lower.includes('create') || lower.includes('new event') || lower.includes('schedule a meeting')) {
+        text = "I have prepared a plan to schedule this calendar event.";
+        toolCalls.push({
+          id: `call_${Date.now()}_cal_create`,
+          name: 'calendar_create_event',
+          arguments: {
+            summary: 'Team Sync',
+            startTime: new Date(Date.now() + 86400000).toISOString(),
+            endTime: new Date(Date.now() + 90000000).toISOString(),
+            description: 'Scheduled via Virtual Assistant'
+          }
+        });
+      } else if (lower.includes('cancel')) {
+        text = "I will request confirmation to cancel this calendar event.";
+        toolCalls.push({
+          id: `call_${Date.now()}_cal_cancel`,
+          name: 'calendar_cancel_event',
+          arguments: {
+            eventId: 'evt_sync_01'
+          }
+        });
+      } else {
+        text = "Checking your upcoming calendar events...";
+        toolCalls.push({
+          id: `call_${Date.now()}_cal_list`,
+          name: 'calendar_list_events',
+          arguments: {
+            timeMin: new Date().toISOString()
+          }
+        });
+      }
+    } else if (lower.includes('file') || lower.includes('workspace')) {
+      if (lower.includes('list')) {
+        text = "Listing files in your sandboxed workspace...";
+        toolCalls.push({
+          id: `call_${Date.now()}_files_list`,
+          name: 'files_list',
+          arguments: {}
+        });
+      } else if (lower.includes('read')) {
+        text = "Reading requested file from sandbox...";
+        toolCalls.push({
+          id: `call_${Date.now()}_files_read`,
+          name: 'files_read',
+          arguments: {
+            filePath: 'notes.txt'
+          }
+        });
+      } else if (lower.includes('write') || lower.includes('save')) {
+        text = "Writing file to sandboxed workspace...";
+        toolCalls.push({
+          id: `call_${Date.now()}_files_write`,
+          name: 'files_write',
+          arguments: {
+            filePath: 'output.txt',
+            content: 'Automated test output'
+          }
+        });
+      }
+    } else if (lower.includes('transfer') || lower.includes('bank') || lower.includes('pizza') || lower.includes('drone') || lower.includes('stock')) {
+      text = "I cannot fulfill this request. I do not have financial, ordering, or physical hardware integrations. My supported integrations are Gmail, Google Calendar, and Sandboxed Files.";
+    } else if (lower.trim() === 'help' || lower.includes('what can you do') || lower.includes('make it better') || lower.includes('do something')) {
+      text = "Please specify what you would like me to assist you with. I can manage your Gmail messages, check or schedule Google Calendar events, and organize files in your workspace sandbox.";
     } else {
-      text = "I am your AI Virtual Assistant. I can help manage your Gmail messages, clean up old emails with safety checks, create drafts, and automate workflow tasks with strict authorization controls.";
+      text = "I am your AI Virtual Assistant. I can help manage your Gmail messages, clean up old emails with safety checks, schedule calendar meetings, and manage workspace files with strict authorization controls.";
     }
 
     return {

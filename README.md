@@ -2,7 +2,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)](https://nextjs.org/)
-[![Tests](https://img.shields.io/badge/Tests-22%2F22%20Passing-emerald.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-47%2F47%20Passing-emerald.svg)](tests/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 An **evidence-driven, privacy-first, extensible, self-hostable personal and professional AI Virtual Assistant**.
@@ -59,7 +59,30 @@ The system strictly enforces the four-phase separation:
 1. **Conversation**: Understanding user intent without granting the model authority to run arbitrary actions.
 2. **Planning**: Generating a transparent, inspectable action plan with explicit risk classifications (`read`, `reversible_write`, `consequential`, `high_risk`).
 3. **Execution**: Server-side policy checks and human confirmation gates validate permissions and arguments before invoking integration adapters.
-4. **Verification**: Authoritative state verification directly against the provider (e.g. checking that messages actually possess the `TRASH` label and lack `INBOX`).
+4. **Verification**: Authoritative state verification directly against the provider (e.g. checking that messages actually possess the `TRASH` label and lack `INBOX`, files exist on disk, or calendar events are confirmed).
+
+---
+
+## Core Capabilities & Current Status
+
+| Capability | Status | Implementation Details |
+| :--- | :--- | :--- |
+| **Conversational Planner** | :white_check_mark: Verified | Converts natural language into typed `TaskPlan` models |
+| **Central Policy Engine** | :white_check_mark: Verified | Server-side risk ratings (`read`, `reversible_write`, `consequential`, `high_risk`) |
+| **Approval Gates** | :white_check_mark: Verified | Explicit user confirmation required for bulk modifications & consequential send actions |
+| **Protected Categories** | :white_check_mark: Verified | Protects tax, financial, receipts, and starred emails from automatic cleanup |
+| **Prompt Injection Defense** | :white_check_mark: Verified | Sanitizes inputs, disarms adversarial phrases, and wraps data in `<UNTRUSTED_DATA>` boundaries |
+| **Gmail Mock Sandbox** | :white_check_mark: Verified | Deterministic in-memory adapter pre-seeded with realistic test emails |
+| **Gmail Live OAuth 2.0** | :white_check_mark: Ready | Official Google REST endpoints for search, trash, archive, labels, draft, and send |
+| **Google Calendar Integration** | :white_check_mark: Verified | Listing upcoming events, event creation, rescheduling, and cancellation |
+| **Sandboxed File System** | :white_check_mark: Verified | Safe directory traversal containment (`data/workspace`), read, write, and move operations |
+| **Durable Background Job Queue** | :white_check_mark: Verified | File-backed state persistence, restart recovery, step checkpointing, and approval pauses |
+| **AI Evaluation Suite (Section 9)** | :white_check_mark: Verified | 15 benchmark tests verifying planning, ambiguity, sequencing, safety, and reporting |
+| **Authoritative State Verification** | :white_check_mark: Verified | Re-queries provider state to verify mutations |
+| **Idempotency Protection** | :white_check_mark: Verified | Prevents duplicate execution upon retries or worker restarts |
+| **Secret Redaction** | :white_check_mark: Verified | Redacts tokens, passwords, and authorization headers from audit logs |
+| **Interactive UI** | :white_check_mark: Verified | Next.js 16 + React 19 + Tailwind CSS + Lucide dashboard with live tabs for Chat, Jobs, Calendar, Files, History, BYOK, Audit, and Policies |
+| **Docker Self-Hosting** | :white_check_mark: Ready | Multi-stage Dockerfile and docker-compose.yml |
 
 ---
 
@@ -81,25 +104,6 @@ The system strictly enforces the four-phase separation:
 6. **Execution**: Moves approved messages to Trash using official API endpoints.
 7. **Authoritative Verification**: Re-queries the Gmail API to verify that each target message now has `TRASH` and is removed from `INBOX`.
 8. **Accurate Reporting**: Reports exact counts of processed, skipped, protected, and verified items.
-
----
-
-## Core Capabilities & Current Status
-
-| Capability | Status | Implementation Details |
-| :--- | :--- | :--- |
-| **Conversational Planner** | :white_check_mark: Verified | Converts natural language into typed `TaskPlan` models |
-| **Central Policy Engine** | :white_check_mark: Verified | Server-side risk ratings (`read`, `reversible_write`, `consequential`, `high_risk`) |
-| **Approval Gates** | :white_check_mark: Verified | Explicit user confirmation required for bulk modifications & consequential send actions |
-| **Protected Categories** | :white_check_mark: Verified | Protects tax, financial, receipts, and starred emails from automatic cleanup |
-| **Prompt Injection Defense** | :white_check_mark: Verified | Sanitizes inputs, disarms adversarial phrases, and wraps data in `<UNTRUSTED_DATA>` boundaries |
-| **Gmail Mock Sandbox** | :white_check_mark: Verified | Deterministic in-memory adapter pre-seeded with realistic test emails |
-| **Gmail Live OAuth 2.0** | :white_check_mark: Ready | Official Google REST endpoints for search, trash, archive, labels, draft, and send |
-| **Authoritative State Verification** | :white_check_mark: Verified | Re-queries provider state to verify label mutations |
-| **Idempotency Protection** | :white_check_mark: Verified | Prevents duplicate execution upon retries or worker restarts |
-| **Secret Redaction** | :white_check_mark: Verified | Redacts tokens, passwords, and authorization headers from audit logs |
-| **Interactive UI** | :white_check_mark: Verified | Next.js 16 + React 19 + Tailwind CSS + Lucide responsive interface |
-| **Docker Self-Hosting** | :white_check_mark: Ready | Multi-stage Dockerfile and docker-compose.yml |
 
 ---
 
@@ -131,14 +135,17 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Testing & Quality Assurance
 
-The test suite runs 22 automated tests covering unit, integration, security, and E2E API routes:
+The test suite runs **47 automated tests across 11 test suites** covering unit, integration, security, e2e API routes, and Section 9 AI quality evaluations:
 
 ```bash
-# Run unit and integration tests with Vitest
+# Run full Vitest test suite
 npm test
 
 # Run TypeScript type check
 npx tsc --noEmit
+
+# Run ESLint check
+npm run lint
 
 # Run Next.js production build
 npm run build
@@ -150,14 +157,30 @@ npm run build
  ✓ tests/unit/test_policy_engine.test.ts (4 tests)
  ✓ tests/unit/test_tool_registry.test.ts (3 tests)
  ✓ tests/integration/test_gmail_mock.test.ts (5 tests)
+ ✓ tests/integration/test_calendar_mock.test.ts (4 tests)
+ ✓ tests/integration/test_files_sandbox.test.ts (3 tests)
+ ✓ tests/integration/test_job_queue.test.ts (3 tests)
  ✓ tests/integration/test_execution_engine.test.ts (1 test)
  ✓ tests/security/test_security_gates.test.ts (3 tests)
  ✓ tests/e2e/test_api_routes.test.ts (2 tests)
+ ✓ tests/evals/test_ai_evals.test.ts (15 tests)
 
-Test Files  7 passed (7)
-Tests       22 passed (22)
-Duration    ~500ms
+Test Files  11 passed (11)
+Tests       47 passed (47)
+Duration    ~800ms
 ```
+
+---
+
+## Background Task Queue & Durable Execution
+
+The assistant includes a durable background job manager in `src/lib/jobs/`:
+- **State Persistence**: Serialized to `data/jobs_state.json`.
+- **Restart Recovery**: Automatically recovers interrupted jobs across application restarts via `recoverInterruptedJobs()`.
+- **Checkpointing**: Tracks step-by-step progress and safely pauses at human approval boundaries (`awaiting_approval`).
+- **REST Endpoints**:
+  - `GET /api/jobs`: List all active and past jobs with progress metrics.
+  - `POST /api/jobs`: Enqueue an existing `TaskPlan` for asynchronous execution.
 
 ---
 
@@ -225,16 +248,6 @@ To connect a real Google account:
    GOOGLE_REDIRECT_URI=http://localhost:3000/api/integrations/gmail/callback
    ```
 5. In the UI Integrations tab, toggle off "Use Mock Sandbox".
-
----
-
-## Extensibility Roadmap
-
-The modular adapter design enables future integrations without modifying the core planning and policy engine:
-- **Google Calendar**: Event scheduling, conflict detection, attendee notifications
-- **Google Drive**: Document organization, sensitive file isolation
-- **Local Automation**: Allowlisted shell utilities inside sandboxed environments
-- **Developer Tools**: GitHub issue triage, PR reviews, CI pipeline checks
 
 ---
 

@@ -5,12 +5,13 @@ import {
   Bot, User, Send, ShieldCheck, ShieldAlert, CheckCircle2, 
   AlertTriangle, Clock, RefreshCw, Mail, Settings, 
   FileText, Play, XCircle, Eye, Lock,
-  ChevronRight, Sparkles, Filter
+  ChevronRight, Sparkles, Filter, Calendar as CalendarIcon,
+  Folder, ListTodo
 } from 'lucide-react';
 import { TaskPlan, AuditEvent, UserPreferences } from '@/types';
 
 export default function AssistantApp() {
-  const [activeTab, setActiveTab] = useState<'chat' | 'history' | 'integrations' | 'audit' | 'preferences'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'history' | 'jobs' | 'calendar' | 'files' | 'integrations' | 'audit' | 'preferences'>('chat');
   const [inputMessage, setInputMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -20,6 +21,9 @@ export default function AssistantApp() {
   const [allPlans, setAllPlans] = useState<TaskPlan[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
+  const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
+  const [workspaceFiles, setWorkspaceFiles] = useState<{ baseDir: string; files: any[] }>({ baseDir: '', files: [] });
+  const [backgroundJobs, setBackgroundJobs] = useState<any[]>([]);
   const [integrationConfig, setIntegrationConfig] = useState<{ useMockGmail: boolean; aiProvider: string; geminiApiKey?: string; openaiApiKey?: string }>({
     useMockGmail: true,
     aiProvider: 'mock'
@@ -68,6 +72,27 @@ export default function AssistantApp() {
       if (auditRes.ok) {
         const aData = await auditRes.json();
         setAuditEvents(aData.events || []);
+      }
+
+      // 5. Fetch calendar events
+      const calRes = await fetch('/api/calendar');
+      if (calRes.ok) {
+        const cData = await calRes.json();
+        setCalendarEvents(cData.events || []);
+      }
+
+      // 6. Fetch workspace files
+      const filesRes = await fetch('/api/files');
+      if (filesRes.ok) {
+        const fData = await filesRes.json();
+        setWorkspaceFiles(fData);
+      }
+
+      // 7. Fetch background jobs
+      const jobsRes = await fetch('/api/jobs');
+      if (jobsRes.ok) {
+        const jData = await jobsRes.json();
+        setBackgroundJobs(jData.jobs || []);
       }
     } catch (err) {
       console.error('Failed to load initial data:', err);
@@ -219,14 +244,26 @@ export default function AssistantApp() {
         </div>
 
         {/* Integration Status Badges */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-medium">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-medium">
             <Mail className="w-3.5 h-3.5 text-red-500" />
             <span>Gmail: {integrationConfig.useMockGmail ? 'Mock Sandbox' : 'Live OAuth'}</span>
             <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
           </div>
 
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-medium">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-medium">
+            <CalendarIcon className="w-3.5 h-3.5 text-blue-500" />
+            <span>Calendar</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          </div>
+
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-medium">
+            <Folder className="w-3.5 h-3.5 text-amber-500" />
+            <span>Files: Sandbox</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          </div>
+
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-medium">
             <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
             <span>AI: {integrationConfig.aiProvider.toUpperCase()}</span>
           </div>
@@ -234,10 +271,10 @@ export default function AssistantApp() {
       </header>
 
       {/* Navigation Tabs */}
-      <div className="flex items-center px-6 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 gap-1">
+      <div className="flex items-center px-6 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 gap-1 overflow-x-auto">
         <button
           onClick={() => setActiveTab('chat')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
             activeTab === 'chat'
               ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
               : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
@@ -247,8 +284,41 @@ export default function AssistantApp() {
         </button>
 
         <button
+          onClick={() => setActiveTab('jobs')}
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
+            activeTab === 'jobs'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+          }`}
+        >
+          <ListTodo className="w-4 h-4" /> Background Jobs ({backgroundJobs.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('calendar')}
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
+            activeTab === 'calendar'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+          }`}
+        >
+          <CalendarIcon className="w-4 h-4" /> Calendar ({calendarEvents.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('files')}
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
+            activeTab === 'files'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+          }`}
+        >
+          <Folder className="w-4 h-4" /> Sandboxed Files ({workspaceFiles.files?.length || 0})
+        </button>
+
+        <button
           onClick={() => setActiveTab('history')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
             activeTab === 'history'
               ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
               : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
@@ -259,7 +329,7 @@ export default function AssistantApp() {
 
         <button
           onClick={() => setActiveTab('integrations')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
             activeTab === 'integrations'
               ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
               : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
@@ -270,18 +340,18 @@ export default function AssistantApp() {
 
         <button
           onClick={() => setActiveTab('audit')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
             activeTab === 'audit'
               ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
               : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
           }`}
         >
-          <ShieldCheck className="w-4 h-4" /> Security & Audit Log ({auditEvents.length})
+          <ShieldCheck className="w-4 h-4" /> Security & Audit ({auditEvents.length})
         </button>
 
         <button
           onClick={() => setActiveTab('preferences')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
             activeTab === 'preferences'
               ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
               : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
@@ -312,6 +382,20 @@ export default function AssistantApp() {
                 >
                   <Lock className="w-3.5 h-3.5 text-emerald-600" />
                   Check protected receipts/tax
+                </button>
+                <button
+                  onClick={() => handleSendMessage('Check my upcoming calendar events for this week')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
+                >
+                  <CalendarIcon className="w-3.5 h-3.5 text-blue-600" />
+                  Check calendar schedule
+                </button>
+                <button
+                  onClick={() => handleSendMessage('List files in safe workspace')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
+                >
+                  <Folder className="w-3.5 h-3.5 text-amber-600" />
+                  List workspace files
                 </button>
               </div>
 
@@ -529,6 +613,194 @@ export default function AssistantApp() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Background Jobs Tab */}
+        {activeTab === 'jobs' && (
+          <div className="p-8 max-w-4xl mx-auto space-y-6 overflow-y-auto h-full">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold">Durable Background Task Queue</h2>
+                <p className="text-xs text-zinc-500">Persistent job checkpoints, automatic restart recovery, and safe human approval gating.</p>
+              </div>
+              <button
+                onClick={fetchInitialData}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-zinc-500" /> Refresh Queue
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {backgroundJobs.length === 0 ? (
+                <div className="p-12 text-center rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-900/50">
+                  <ListTodo className="w-8 h-8 text-zinc-400 mx-auto mb-2" />
+                  <p className="text-xs text-zinc-500 font-medium">No background jobs queued or running.</p>
+                  <p className="text-[11px] text-zinc-400 mt-1">Multi-step plans can be enqueued to execute durably in the background.</p>
+                </div>
+              ) : (
+                backgroundJobs.map(job => (
+                  <div key={job.id} className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-bold text-zinc-700 dark:text-zinc-300">{job.id}</span>
+                        {getStatusBadge(job.status)}
+                      </div>
+                      <span className="text-[11px] text-zinc-400">{new Date(job.createdAt).toLocaleString()}</span>
+                    </div>
+
+                    <p className="text-xs text-zinc-800 dark:text-zinc-200 font-medium">{job.plan?.summary || 'Background workflow execution'}</p>
+
+                    {/* Progress Bar */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[11px] text-zinc-500">
+                        <span>Progress: Step {job.currentStepIndex + 1} of {job.totalSteps}</span>
+                        <span>{job.totalSteps > 0 ? Math.round(((job.currentStepIndex + (job.status === 'succeeded' ? 1 : 0)) / job.totalSteps) * 100) : 0}%</span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
+                        <div 
+                          className="h-full bg-indigo-600 rounded-full transition-all duration-300"
+                          style={{ width: `${job.totalSteps > 0 ? Math.min(100, Math.round(((job.currentStepIndex + (job.status === 'succeeded' ? 1 : 0)) / job.totalSteps) * 100)) : 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Calendar Schedule Tab */}
+        {activeTab === 'calendar' && (
+          <div className="p-8 max-w-4xl mx-auto space-y-6 overflow-y-auto h-full">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold">Google Calendar Schedule</h2>
+                <p className="text-xs text-zinc-500">Upcoming calendar events, attendee coordination, and meeting scheduling controls.</p>
+              </div>
+              <button
+                onClick={() => {
+                  setActiveTab('chat');
+                  handleSendMessage('Check my upcoming calendar events for this week');
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow-xs hover:bg-indigo-700 transition"
+              >
+                <CalendarIcon className="w-3.5 h-3.5" /> Ask Assistant to Schedule
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {calendarEvents.length === 0 ? (
+                <div className="p-12 text-center rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-900/50">
+                  <CalendarIcon className="w-8 h-8 text-zinc-400 mx-auto mb-2" />
+                  <p className="text-xs text-zinc-500 font-medium">No upcoming calendar events found.</p>
+                </div>
+              ) : (
+                calendarEvents.map(evt => (
+                  <div key={evt.id} className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{evt.summary}</span>
+                        <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${
+                          evt.status === 'confirmed' 
+                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300' 
+                            : 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
+                        }`}>
+                          {evt.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <span className="font-mono text-[11px] text-zinc-400">{evt.id}</span>
+                    </div>
+
+                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400 flex flex-wrap items-center gap-4">
+                      <span>Time: <strong className="text-zinc-700 dark:text-zinc-300">{new Date(evt.startTime).toLocaleString()}</strong> - {new Date(evt.endTime).toLocaleTimeString()}</span>
+                      {evt.location && <span>Location: <strong className="text-zinc-700 dark:text-zinc-300">{evt.location}</strong></span>}
+                    </div>
+
+                    {evt.description && (
+                      <p className="text-xs text-zinc-600 dark:text-zinc-400">{evt.description}</p>
+                    )}
+
+                    {evt.attendees && evt.attendees.length > 0 && (
+                      <div className="flex items-center gap-1.5 pt-1">
+                        <span className="text-[11px] text-zinc-400">Attendees:</span>
+                        {evt.attendees.map((att: string, idx: number) => (
+                          <span key={idx} className="px-2 py-0.5 rounded text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-mono">
+                            {att}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Sandboxed Files Tab */}
+        {activeTab === 'files' && (
+          <div className="p-8 max-w-4xl mx-auto space-y-6 overflow-y-auto h-full">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold">Sandboxed Workspace Files</h2>
+                <p className="text-xs text-zinc-500">
+                  Protected local workspace sandbox. Path traversal outside this directory is strictly blocked by security gates.
+                </p>
+                <code className="text-[11px] text-indigo-600 dark:text-indigo-400 font-mono mt-1 block">
+                  {workspaceFiles.baseDir || 'data/workspace'}
+                </code>
+              </div>
+              <button
+                onClick={() => {
+                  setActiveTab('chat');
+                  handleSendMessage('Save a summary of my tasks to workspace/summary.txt');
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow-xs hover:bg-indigo-700 transition"
+              >
+                <Folder className="w-3.5 h-3.5" /> Ask Assistant to Write File
+              </button>
+            </div>
+
+            <div className="overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-zinc-50 dark:bg-zinc-800/50 border-b border-zinc-200 dark:border-zinc-800 font-semibold text-zinc-600 dark:text-zinc-300">
+                  <tr>
+                    <th className="p-3">File Name</th>
+                    <th className="p-3">Relative Path</th>
+                    <th className="p-3">Size</th>
+                    <th className="p-3">Last Modified</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {!workspaceFiles.files || workspaceFiles.files.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="p-8 text-center text-zinc-400">
+                        No files in workspace directory yet. Instruct the assistant to create or organize files!
+                      </td>
+                    </tr>
+                  ) : (
+                    workspaceFiles.files.map((file, idx) => (
+                      <tr key={idx} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40">
+                        <td className="p-3 font-medium flex items-center gap-2">
+                          {file.isDirectory ? (
+                            <Folder className="w-4 h-4 text-amber-500" />
+                          ) : (
+                            <FileText className="w-4 h-4 text-zinc-400" />
+                          )}
+                          <span>{file.name}</span>
+                        </td>
+                        <td className="p-3 font-mono text-[11px] text-zinc-500">{file.path}</td>
+                        <td className="p-3 text-zinc-500">{file.sizeBytes} B</td>
+                        <td className="p-3 text-[11px] text-zinc-400">{new Date(file.modifiedAt).toLocaleString()}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
