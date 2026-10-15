@@ -7,15 +7,17 @@ import {
   FileText, Play, XCircle, Eye, Lock,
   ChevronRight, Sparkles, Filter, Calendar as CalendarIcon,
   Folder, ListTodo, CheckSquare, Users, DollarSign, Sun, Star, Plus, Search,
-  Briefcase, Plane, Hotel, FileCheck, Repeat
+  Briefcase, Plane, Hotel, FileCheck, Repeat,
+  PenTool, FileSearch, Smartphone, Receipt, Radio
 } from 'lucide-react';
 import { 
   TaskPlan, AuditEvent, UserPreferences, TaskItem, ContactItem, ExpenseRecord, ExecutiveBriefing,
-  MeetingDossier, TripItinerary, RoutineExecutionResult
+  MeetingDossier, TripItinerary, RoutineExecutionResult,
+  ExecutiveVoiceProfile, CloudDocument, ScheduledJobConfig, ParsedReceipt, GhostwriteResult
 } from '@/types';
 
 export default function AssistantApp() {
-  const [activeTab, setActiveTab] = useState<'chat' | 'briefing' | 'tasks' | 'contacts' | 'expenses' | 'dossiers' | 'travel' | 'routines' | 'jobs' | 'calendar' | 'files' | 'history' | 'integrations' | 'audit' | 'preferences'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'briefing' | 'tasks' | 'contacts' | 'expenses' | 'dossiers' | 'travel' | 'routines' | 'voice' | 'documents' | 'scheduler' | 'omnichannel' | 'jobs' | 'calendar' | 'files' | 'history' | 'integrations' | 'audit' | 'preferences'>('chat');
   const [inputMessage, setInputMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -57,6 +59,36 @@ export default function AssistantApp() {
   const [processedNotesResult, setProcessedNotesResult] = useState<any | null>(null);
   const [isProcessingNotes, setIsProcessingNotes] = useState(false);
   const [isRunningRoutine, setIsRunningRoutine] = useState<string | null>(null);
+
+  // 100% Human EA Replacement feature states
+  const [voiceProfile, setVoiceProfile] = useState<ExecutiveVoiceProfile | null>(null);
+  const [ghostwriteRecipient, setGhostwriteRecipient] = useState('');
+  const [ghostwriteSubject, setGhostwriteSubject] = useState('');
+  const [ghostwriteContext, setGhostwriteContext] = useState('');
+  const [ghostwriteInstructions, setGhostwriteInstructions] = useState('');
+  const [ghostwriteResult, setGhostwriteResult] = useState<GhostwriteResult | null>(null);
+  const [isGhostwriting, setIsGhostwriting] = useState(false);
+
+  const [cloudDocuments, setCloudDocuments] = useState<CloudDocument[]>([]);
+  const [documentSearchQuery, setDocumentSearchQuery] = useState('');
+  const [summarizedDocResult, setSummarizedDocResult] = useState<any | null>(null);
+
+  const [scheduledJobs, setScheduledJobs] = useState<ScheduledJobConfig[]>([]);
+  const [isEvaluatingJobs, setIsEvaluatingJobs] = useState(false);
+
+  const [parsedReceipts, setParsedReceipts] = useState<ParsedReceipt[]>([]);
+  const [receiptRawInput, setReceiptRawInput] = useState('');
+  const [latestParsedReceipt, setLatestParsedReceipt] = useState<ParsedReceipt | null>(null);
+  const [isParsingReceipt, setIsParsingReceipt] = useState(false);
+
+  const [omniChannel, setOmniChannel] = useState<'telegram' | 'whatsapp' | 'slack' | 'voice_note'>('telegram');
+  const [omniInputText, setOmniInputText] = useState('');
+  const [omniAudioPreset, setOmniAudioPreset] = useState('briefing_memo.wav');
+  const [omniResponse, setOmniResponse] = useState<any | null>(null);
+  const [isSendingOmni, setIsSendingOmni] = useState(false);
+
+  const [pendingApprovalToken, setPendingApprovalToken] = useState('');
+  const [approvalFeedback, setApprovalFeedback] = useState<string | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -176,8 +208,234 @@ export default function AssistantApp() {
         const rData = await rtnRes.json();
         setRoutineHistory(rData.routines || []);
       }
+
+      // 15. Fetch voice profile
+      const voiceRes = await fetch('/api/ghostwriter');
+      if (voiceRes.ok) {
+        const vData = await voiceRes.json();
+        setVoiceProfile(vData.profile);
+      }
+
+      // 16. Fetch cloud documents
+      const docsRes = await fetch('/api/documents');
+      if (docsRes.ok) {
+        const dData = await docsRes.json();
+        setCloudDocuments(dData.documents || []);
+      }
+
+      // 17. Fetch scheduled recurring jobs
+      const schedRes = await fetch('/api/scheduler');
+      if (schedRes.ok) {
+        const sData = await schedRes.json();
+        setScheduledJobs(sData.jobs || []);
+      }
+
+      // 18. Fetch receipts
+      const rcptRes = await fetch('/api/receipts');
+      if (rcptRes.ok) {
+        const rData = await rcptRes.json();
+        setParsedReceipts(rData.receipts || []);
+      }
     } catch (err) {
       console.error('Failed to load initial data:', err);
+    }
+  };
+
+  const handleUpdateVoiceProfile = async (updated: Partial<ExecutiveVoiceProfile>) => {
+    try {
+      const merged = { ...voiceProfile, ...updated };
+      const res = await fetch('/api/ghostwriter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update_profile', profile: merged })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVoiceProfile(data.profile);
+      }
+    } catch (err) {
+      console.error('Failed to update voice profile:', err);
+    }
+  };
+
+  const handleGhostwrite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ghostwriteRecipient || !ghostwriteContext) return;
+    setIsGhostwriting(true);
+    try {
+      const res = await fetch('/api/ghostwriter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipient: ghostwriteRecipient,
+          subject: ghostwriteSubject || 'Follow up',
+          inquiryContext: ghostwriteContext,
+          executiveInstructions: ghostwriteInstructions
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setGhostwriteResult(data.result);
+      }
+    } catch (err) {
+      console.error('Failed to ghostwrite reply:', err);
+    } finally {
+      setIsGhostwriting(false);
+    }
+  };
+
+  const handleSearchDocuments = async (q: string) => {
+    setDocumentSearchQuery(q);
+    try {
+      const res = await fetch(`/api/documents?q=${encodeURIComponent(q)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCloudDocuments(data.documents || []);
+      }
+    } catch (err) {
+      console.error('Failed to search documents:', err);
+    }
+  };
+
+  const handleSummarizeDocument = async (idOrTitle: string) => {
+    try {
+      const res = await fetch('/api/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'summarize', query: idOrTitle })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSummarizedDocResult(data.summary);
+      }
+    } catch (err) {
+      console.error('Failed to summarize document:', err);
+    }
+  };
+
+  const handleToggleJob = async (id: string) => {
+    try {
+      const res = await fetch('/api/scheduler', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggle', id })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setScheduledJobs(prev => prev.map(j => j.id === id ? data.job : j));
+      }
+    } catch (err) {
+      console.error('Failed to toggle job:', err);
+    }
+  };
+
+  const handleTriggerJob = async (id: string) => {
+    try {
+      const res = await fetch('/api/scheduler', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'trigger', id })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setScheduledJobs(prev => prev.map(j => j.id === id ? data.job : j));
+        fetchInitialData();
+      }
+    } catch (err) {
+      console.error('Failed to trigger job:', err);
+    }
+  };
+
+  const handleEvaluateDueJobs = async () => {
+    setIsEvaluatingJobs(true);
+    try {
+      const res = await fetch('/api/scheduler', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'evaluate' })
+      });
+      if (res.ok) {
+        fetchInitialData();
+      }
+    } catch (err) {
+      console.error('Failed to evaluate jobs:', err);
+    } finally {
+      setIsEvaluatingJobs(false);
+    }
+  };
+
+  const handleParseReceipt = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!receiptRawInput.trim()) return;
+    setIsParsingReceipt(true);
+    try {
+      const res = await fetch('/api/receipts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rawText: receiptRawInput, sourceFileName: 'scanned_receipt.txt' })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setLatestParsedReceipt(data.receipt);
+        setParsedReceipts(prev => [data.receipt, ...prev]);
+        fetchInitialData();
+      }
+    } catch (err) {
+      console.error('Failed to parse receipt:', err);
+    } finally {
+      setIsParsingReceipt(false);
+    }
+  };
+
+  const handleSendOmnichannel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSendingOmni(true);
+    setApprovalFeedback(null);
+    try {
+      const payload: any = {
+        channel: omniChannel,
+        senderId: 'exec_mobile_user_01',
+        text: omniInputText
+      };
+      if (omniChannel === 'voice_note' || !omniInputText) {
+        payload.audioUrl = `https://storage.local/voice_notes/${omniAudioPreset}`;
+      }
+
+      const res = await fetch('/api/omnichannel/inbound', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setOmniResponse(data.response);
+        if (data.response?.approvalToken) {
+          setPendingApprovalToken(data.response.approvalToken);
+        }
+        fetchInitialData();
+      }
+    } catch (err) {
+      console.error('Failed to send omnichannel message:', err);
+    } finally {
+      setIsSendingOmni(false);
+    }
+  };
+
+  const handleMobileApprovalDecision = async (token: string, approved: boolean) => {
+    try {
+      const res = await fetch('/api/approvals/mobile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, approved })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setApprovalFeedback(data.message);
+        setPendingApprovalToken('');
+        fetchInitialData();
+      }
+    } catch (err) {
+      console.error('Failed to process mobile decision:', err);
     }
   };
 
@@ -633,6 +891,53 @@ export default function AssistantApp() {
           }`}
         >
           <Repeat className="w-4 h-4 text-amber-500" /> Routines & Automations
+        </button>
+
+        <button
+          onClick={() => setActiveTab('voice')}
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
+            activeTab === 'voice'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+          }`}
+        >
+          <PenTool className="w-4 h-4 text-pink-500" /> Executive Voice & Ghostwriter
+        </button>
+
+        <button
+          onClick={() => setActiveTab('documents')}
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
+            activeTab === 'documents'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+          }`}
+        >
+          <FileSearch className="w-4 h-4 text-cyan-500" /> Cloud Documents & Drive ({cloudDocuments.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('scheduler')}
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
+            activeTab === 'scheduler'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+          }`}
+        >
+          <Radio className="w-4 h-4 text-orange-500" /> Daemon & Cron Scheduler ({scheduledJobs.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('omnichannel')}
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
+            activeTab === 'omnichannel'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+          }`}
+        >
+          <Smartphone className="w-4 h-4 text-indigo-500" /> Omnichannel & Approvals
+          {pendingApprovalToken && (
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+          )}
         </button>
 
         <button
@@ -2469,6 +2774,489 @@ export default function AssistantApp() {
                     @{dom}
                   </span>
                 ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Executive Voice & Ghostwriter Tab */}
+        {activeTab === 'voice' && (
+          <div className="p-8 max-w-6xl mx-auto space-y-6 overflow-y-auto h-full">
+            <div>
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <PenTool className="w-5 h-5 text-pink-500" />
+                Executive Voice Matching & In-Voice Ghostwriting
+              </h2>
+              <p className="text-xs text-zinc-500">
+                Calibrate communication tone, formality, and brevity preferences. The assistant drafts authentic, executive-grade email responses directly into Gmail drafts.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Profile Config Card */}
+              <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-4">
+                <h3 className="text-sm font-bold border-b border-zinc-100 dark:border-zinc-800 pb-2">Voice Style & Tone Settings</h3>
+                
+                {voiceProfile ? (
+                  <div className="space-y-4 text-xs">
+                    <div>
+                      <label className="font-semibold block mb-1">Tone & Persona</label>
+                      <select 
+                        value={voiceProfile.tone}
+                        onChange={(e: any) => handleUpdateVoiceProfile({ tone: e.target.value })}
+                        className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
+                      >
+                        <option value="concise_professional">Concise & Professional (Default)</option>
+                        <option value="warm_executive">Warm Executive</option>
+                        <option value="formal_corporate">Formal Corporate / Institutional</option>
+                        <option value="casual_direct">Casual & Direct</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="font-semibold block mb-1">Brevity Preference</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(['ultra_brief', 'balanced', 'detailed'] as const).map(b => (
+                          <button
+                            key={b}
+                            type="button"
+                            onClick={() => handleUpdateVoiceProfile({ brevityPreference: b })}
+                            className={`p-2 rounded-lg font-medium border text-center capitalize ${
+                              voiceProfile.brevityPreference === b
+                                ? 'bg-indigo-50 border-indigo-500 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                                : 'border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                            }`}
+                          >
+                            {b.replace('_', ' ')}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="font-semibold block mb-1">Formality Level (1 = Casual, 5 = Highly Formal)</label>
+                      <input 
+                        type="range" 
+                        min="1" 
+                        max="5" 
+                        value={voiceProfile.formalityLevel}
+                        onChange={(e) => handleUpdateVoiceProfile({ formalityLevel: parseInt(e.target.value, 10) })}
+                        className="w-full accent-indigo-600"
+                      />
+                      <div className="flex justify-between text-[11px] text-zinc-400 mt-1">
+                        <span>1 (Casual)</span>
+                        <span>Level {voiceProfile.formalityLevel}</span>
+                        <span>5 (Institutional)</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="font-semibold block mb-1">Typical Sign-Off</label>
+                      <textarea
+                        rows={2}
+                        value={voiceProfile.typicalSignOff}
+                        onChange={(e) => handleUpdateVoiceProfile({ typicalSignOff: e.target.value })}
+                        className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 font-mono text-[11px]"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-zinc-400">Loading voice profile...</p>
+                )}
+              </div>
+
+              {/* Ghostwrite Composer Playground */}
+              <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-4 flex flex-col justify-between">
+                <div>
+                  <h3 className="text-sm font-bold border-b border-zinc-100 dark:border-zinc-800 pb-2">Test In-Voice Email Ghostwriting</h3>
+                  <form onSubmit={handleGhostwrite} className="space-y-3 mt-3 text-xs">
+                    <div>
+                      <label className="font-semibold block mb-1">Recipient</label>
+                      <input 
+                        type="email" 
+                        placeholder="elena.rostova@summitpartners.com"
+                        value={ghostwriteRecipient}
+                        onChange={(e) => setGhostwriteRecipient(e.target.value)}
+                        className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="font-semibold block mb-1">Subject</label>
+                      <input 
+                        type="text" 
+                        placeholder="Series B Term Sheet & ARR Growth"
+                        value={ghostwriteSubject}
+                        onChange={(e) => setGhostwriteSubject(e.target.value)}
+                        className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-semibold block mb-1">Inbound Context (What they asked)</label>
+                      <textarea 
+                        rows={2}
+                        placeholder="They want updated Q4 numbers and asked for a sync Tuesday."
+                        value={ghostwriteContext}
+                        onChange={(e) => setGhostwriteContext(e.target.value)}
+                        className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="font-semibold block mb-1">Executive Instructions</label>
+                      <input 
+                        type="text" 
+                        placeholder="Agree to Tuesday 2 PM and confirm we'll share the deck beforehand."
+                        value={ghostwriteInstructions}
+                        onChange={(e) => setGhostwriteInstructions(e.target.value)}
+                        className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={isGhostwriting}
+                      className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition-colors flex items-center justify-center gap-2"
+                    >
+                      {isGhostwriting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <PenTool className="w-4 h-4" />}
+                      Generate In-Voice Draft
+                    </button>
+                  </form>
+                </div>
+
+                {ghostwriteResult && (
+                  <div className="mt-4 p-4 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-indigo-200 dark:border-indigo-900/50 space-y-2 text-xs">
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">
+                      <span>✓ Gmail Draft Prepared ({ghostwriteResult.draftId})</span>
+                      <span className="capitalize">{ghostwriteResult.toneApplied.replace('_', ' ')}</span>
+                    </div>
+                    <p className="font-mono text-[11px] font-bold">To: {ghostwriteResult.to}</p>
+                    <p className="font-mono text-[11px] font-bold">Subject: {ghostwriteResult.subject}</p>
+                    <div className="p-2.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 whitespace-pre-wrap font-sans text-xs text-zinc-700 dark:text-zinc-300">
+                      {ghostwriteResult.body}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Cloud Documents & Drive Tab */}
+        {activeTab === 'documents' && (
+          <div className="p-8 max-w-6xl mx-auto space-y-6 overflow-y-auto h-full">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold flex items-center gap-2">
+                  <FileSearch className="w-5 h-5 text-cyan-500" />
+                  Cloud Document & Executive Drive Sync
+                </h2>
+                <p className="text-xs text-zinc-500">
+                  Search and index enterprise contracts, board decks, NDAs, and compliance certifications.
+                </p>
+              </div>
+              <div className="w-72">
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-3 text-zinc-400" />
+                  <input
+                    type="text"
+                    placeholder="Search documents or tags..."
+                    value={documentSearchQuery}
+                    onChange={(e) => handleSearchDocuments(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Document Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {cloudDocuments.map(doc => (
+                <div key={doc.id} className="p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-3 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="p-2 rounded-lg bg-cyan-50 dark:bg-cyan-950 text-cyan-600 dark:text-cyan-400">
+                        <FileText className="w-4 h-4" />
+                      </span>
+                      <span className="text-[10px] font-mono text-zinc-400">{new Date(doc.lastModified).toLocaleDateString()}</span>
+                    </div>
+                    <h3 className="font-bold text-xs mt-2 text-zinc-800 dark:text-zinc-200">{doc.title}</h3>
+                    <p className="text-[11px] text-zinc-500 mt-1 line-clamp-3">{doc.contentSnippet}</p>
+                    <div className="flex flex-wrap gap-1 mt-3">
+                      {doc.tags.map(t => (
+                        <span key={t} className="px-2 py-0.5 rounded text-[10px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+                          #{t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleSummarizeDocument(doc.id)}
+                    className="w-full py-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs font-semibold transition-colors text-zinc-700 dark:text-zinc-300"
+                  >
+                    Summarize Key Terms
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {summarizedDocResult && (
+              <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-cyan-200 dark:border-cyan-900 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-sm text-cyan-700 dark:text-cyan-400 flex items-center gap-2">
+                    <FileCheck className="w-4 h-4" />
+                    Executive Analysis: {summarizedDocResult.document?.title}
+                  </h3>
+                  <button onClick={() => setSummarizedDocResult(null)} className="text-zinc-400 hover:text-zinc-600 text-xs">✕ Close</button>
+                </div>
+                <p className="text-xs text-zinc-700 dark:text-zinc-300 font-medium">{summarizedDocResult.executiveSummary}</p>
+                <div className="space-y-1">
+                  {summarizedDocResult.keyPoints?.map((pt: string, idx: number) => (
+                    <div key={idx} className="text-xs text-zinc-600 dark:text-zinc-400 flex items-start gap-2">
+                      <span className="text-cyan-500">•</span>
+                      <span>{pt}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Daemon & Cron Scheduler Tab */}
+        {activeTab === 'scheduler' && (
+          <div className="p-8 max-w-5xl mx-auto space-y-6 overflow-y-auto h-full">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold flex items-center gap-2">
+                  <Radio className="w-5 h-5 text-orange-500" />
+                  Autonomous Headless Background Scheduler
+                </h2>
+                <p className="text-xs text-zinc-500">
+                  Headless daemon executes executive routines on schedule without needing an open browser tab.
+                </p>
+              </div>
+              <button
+                onClick={handleEvaluateDueJobs}
+                disabled={isEvaluatingJobs}
+                className="px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-semibold text-xs transition-colors flex items-center gap-2"
+              >
+                {isEvaluatingJobs ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                Evaluate Due Jobs Now
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {scheduledJobs.map(job => (
+                <div key={job.id} className="p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs flex items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2.5 h-2.5 rounded-full ${job.enabled ? 'bg-emerald-500' : 'bg-zinc-400'}`}></span>
+                      <h3 className="font-bold text-xs">{job.name}</h3>
+                      <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+                        {job.cronExpression}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4 text-[11px] text-zinc-400">
+                      <span>Routine: <strong className="text-zinc-700 dark:text-zinc-300">{job.routineType}</strong></span>
+                      <span>Last Run: {job.lastRunAt ? new Date(job.lastRunAt).toLocaleTimeString() : 'Never'}</span>
+                      <span>Channels: {job.notifyChannels.join(', ')}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleTriggerJob(job.id)}
+                      className="px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs font-semibold transition-colors"
+                    >
+                      Trigger Now
+                    </button>
+                    <button
+                      onClick={() => handleToggleJob(job.id)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                        job.enabled 
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                          : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                      }`}
+                    >
+                      {job.enabled ? 'Enabled' : 'Disabled'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Omnichannel & Approvals Tab */}
+        {activeTab === 'omnichannel' && (
+          <div className="p-8 max-w-6xl mx-auto space-y-6 overflow-y-auto h-full">
+            <div>
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <Smartphone className="w-5 h-5 text-indigo-500" />
+                Omnichannel Ingestion, Voice Memos & Mobile Approval Gate
+              </h2>
+              <p className="text-xs text-zinc-500">
+                Process requests from Telegram, WhatsApp, Slack, voice note memos, and manage remote one-tap authorization callbacks.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Inbound Simulator */}
+              <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-4">
+                <h3 className="text-sm font-bold border-b border-zinc-100 dark:border-zinc-800 pb-2">Simulate Remote Inbound Message / Voice Memo</h3>
+                
+                <form onSubmit={handleSendOmnichannel} className="space-y-3 text-xs">
+                  <div>
+                    <label className="font-semibold block mb-1">Communication Channel</label>
+                    <select
+                      value={omniChannel}
+                      onChange={(e: any) => setOmniChannel(e.target.value)}
+                      className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
+                    >
+                      <option value="telegram">Telegram (@AssistantBot)</option>
+                      <option value="slack">Slack (#executive-sync)</option>
+                      <option value="whatsapp">WhatsApp (+1 415 555-0199)</option>
+                      <option value="voice_note">Voice Note (Audio Memo)</option>
+                    </select>
+                  </div>
+
+                  {omniChannel === 'voice_note' ? (
+                    <div>
+                      <label className="font-semibold block mb-1">Select Audio Voice Memo Simulation</label>
+                      <select
+                        value={omniAudioPreset}
+                        onChange={(e) => setOmniAudioPreset(e.target.value)}
+                        className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 font-mono text-[11px]"
+                      >
+                        <option value="briefing_memo.wav">&quot;Give me my morning briefing&quot;</option>
+                        <option value="task_memo.wav">&quot;Add task: Call Marcus regarding partnership agreement&quot;</option>
+                        <option value="flight_memo.wav">&quot;What is the status of my flight DL 428?&quot;</option>
+                      </select>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="font-semibold block mb-1">Message Text</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Clean up emails older than 5 years, or find open slots for 30m meeting"
+                        value={omniInputText}
+                        onChange={(e) => setOmniInputText(e.target.value)}
+                        className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
+                      />
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={isSendingOmni}
+                    className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition-colors flex items-center justify-center gap-2"
+                  >
+                    {isSendingOmni ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    Dispatch Inbound Request
+                  </button>
+                </form>
+
+                {omniResponse && (
+                  <div className="mt-4 p-4 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 space-y-2 text-xs">
+                    <span className="font-bold uppercase text-[10px] tracking-wider text-indigo-600 dark:text-indigo-400">
+                      Response ({omniResponse.channel})
+                    </span>
+                    <p className="whitespace-pre-wrap font-mono text-[11px] text-zinc-800 dark:text-zinc-200">
+                      {omniResponse.replyText}
+                    </p>
+
+                    {omniResponse.requiresApproval && omniResponse.approvalToken && (
+                      <div className="p-3 mt-3 rounded-lg bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 space-y-2">
+                        <p className="font-bold text-amber-800 dark:text-amber-300">Remote Authorization Required</p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleMobileApprovalDecision(omniResponse.approvalToken, true)}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition-colors"
+                          >
+                            Approve Action
+                          </button>
+                          <button
+                            onClick={() => handleMobileApprovalDecision(omniResponse.approvalToken, false)}
+                            className="px-3 py-1.5 rounded-lg bg-rose-600 text-white font-bold hover:bg-rose-700 transition-colors"
+                          >
+                            Reject Action
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {approvalFeedback && (
+                  <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs font-semibold">
+                    {approvalFeedback}
+                  </div>
+                )}
+              </div>
+
+              {/* Receipt OCR Panel */}
+              <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-4">
+                <h3 className="text-sm font-bold border-b border-zinc-100 dark:border-zinc-800 pb-2 flex items-center gap-2">
+                  <Receipt className="w-4 h-4 text-emerald-600" />
+                  PDF & Receipt OCR Invoice Parser
+                </h3>
+                
+                <form onSubmit={handleParseReceipt} className="space-y-3 text-xs">
+                  <div>
+                    <label className="font-semibold block mb-1">Receipt / Invoice Text</label>
+                    <textarea
+                      rows={6}
+                      placeholder={`Amazon Web Services Invoice\nDate: 2026-10-14\nEC2 Compute: $412.50\nAurora PostgreSQL: $185.00\nTax: $52.77\nTotal Amount Due: $650.27 USD`}
+                      value={receiptRawInput}
+                      onChange={(e) => setReceiptRawInput(e.target.value)}
+                      className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 font-mono text-[11px]"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isParsingReceipt}
+                    className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors flex items-center justify-center gap-2"
+                  >
+                    {isParsingReceipt ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FileCheck className="w-4 h-4" />}
+                    Extract OCR & Reconcile to Ledger
+                  </button>
+                </form>
+
+                {latestParsedReceipt && (
+                  <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 space-y-2 text-xs">
+                    <span className="font-bold text-emerald-700 dark:text-emerald-300">
+                      ✓ Parsed & Reconciled ({latestParsedReceipt.receiptId})
+                    </span>
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div><strong>Merchant:</strong> {latestParsedReceipt.merchantName}</div>
+                      <div><strong>Total:</strong> ${latestParsedReceipt.totalAmount.toFixed(2)}</div>
+                      <div><strong>Tax/VAT:</strong> ${latestParsedReceipt.taxAmount.toFixed(2)}</div>
+                      <div><strong>Category:</strong> {latestParsedReceipt.category}</div>
+                    </div>
+                  </div>
+                )}
+
+                {parsedReceipts.length > 0 && (
+                  <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
+                    <h4 className="font-bold text-[11px] text-zinc-500 uppercase tracking-wider">
+                      Recently Processed Documents ({parsedReceipts.length})
+                    </h4>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                      {parsedReceipts.slice(0, 5).map(rcpt => (
+                        <div key={rcpt.receiptId} className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/40 text-[11px]">
+                          <div>
+                            <span className="font-semibold text-zinc-800 dark:text-zinc-200">{rcpt.merchantName}</span>
+                            <span className="text-zinc-400 ml-2">({rcpt.transactionDate})</span>
+                          </div>
+                          <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                            ${rcpt.totalAmount.toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

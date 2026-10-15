@@ -9,7 +9,9 @@ import path from 'path';
 import { 
   TaskPlan, UserPreferences, UserPreferencesSchema,
   TaskItem, ContactItem, ExpenseRecord,
-  TripItinerary, MeetingDossier, RoutineExecutionResult
+  TripItinerary, MeetingDossier, RoutineExecutionResult,
+  ExecutiveVoiceProfile, ExecutiveVoiceProfileSchema,
+  CloudDocument, ScheduledJobConfig, ParsedReceipt
 } from '@/types';
 
 interface AppState {
@@ -22,6 +24,11 @@ interface AppState {
   trips: Record<string, TripItinerary>;
   dossiers: Record<string, MeetingDossier>;
   routines: Record<string, RoutineExecutionResult>;
+  voiceProfile: ExecutiveVoiceProfile;
+  documents: Record<string, CloudDocument>;
+  scheduledJobs: Record<string, ScheduledJobConfig>;
+  receipts: Record<string, ParsedReceipt>;
+  mobileApprovals: Record<string, { planId: string; token: string; createdAt: string; status: 'pending' | 'approved' | 'rejected' }>;
   integrationConfig: {
     useMockGmail: boolean;
     aiProvider: string;
@@ -221,6 +228,69 @@ export class AppStorage {
       }
     };
 
+    const initialDocuments: Record<string, CloudDocument> = {
+      'doc_01': {
+        id: 'doc_01',
+        title: 'Master Services Agreement - Acme Corp 2026.pdf',
+        mimeType: 'application/pdf',
+        path: '/Legal/Contracts/Master Services Agreement - Acme Corp 2026.pdf',
+        lastModified: now.toISOString(),
+        owner: 'legal@example.com',
+        tags: ['legal', 'contract', 'enterprise', 'acme'],
+        contentSnippet: 'Standard Master Services Agreement governing software licenses, SLAs (99.9% uptime), and indemnification limits capped at 2x annual contract value ($500,000 USD).',
+        summary: 'Enterprise software agreement with Acme Corp with standard SLAs and liability caps.'
+      },
+      'doc_02': {
+        id: 'doc_02',
+        title: 'Q4 Investor Pitch Deck & Board Review.pdf',
+        mimeType: 'application/pdf',
+        path: '/Executive/Presentations/Q4 Investor Pitch Deck & Board Review.pdf',
+        lastModified: now.toISOString(),
+        owner: 'adam@example.com',
+        tags: ['board', 'investors', 'pitch', 'quarterly'],
+        contentSnippet: 'Executive quarterly review summarizing ARR growth ($4.2M, +38% YoY), gross margins (82%), and net retention (124%).',
+        summary: 'Q4 strategic board deck highlighting ARR growth and key commercial milestones.'
+      },
+      'doc_03': {
+        id: 'doc_03',
+        title: 'SOC-2 Type II Independent Audit Report.pdf',
+        mimeType: 'application/pdf',
+        path: '/Compliance/Security/SOC-2 Type II Independent Audit Report.pdf',
+        lastModified: now.toISOString(),
+        owner: 'security@example.com',
+        tags: ['compliance', 'security', 'audit', 'soc2'],
+        contentSnippet: 'Independent service auditor report verifying zero exceptions across Trust Services Criteria for Security, Availability, and Confidentiality.',
+        summary: 'Clean SOC-2 Type II examination with zero security exceptions.'
+      }
+    };
+
+    const initialScheduledJobs: Record<string, ScheduledJobConfig> = {
+      'job_morning': {
+        id: 'job_morning',
+        name: 'Daily Morning Executive Kickoff',
+        cronExpression: '0 7 * * *',
+        routineType: 'morning_briefing',
+        enabled: true,
+        notifyChannels: ['email', 'telegram']
+      },
+      'job_evening': {
+        id: 'job_evening',
+        name: 'Daily Evening Wrap-Up & Rollover',
+        cronExpression: '0 18 * * *',
+        routineType: 'evening_wrapup',
+        enabled: true,
+        notifyChannels: ['email', 'telegram']
+      },
+      'job_weekly': {
+        id: 'job_weekly',
+        name: 'Weekly Executive & Spend Audit',
+        cronExpression: '0 20 * * 0',
+        routineType: 'weekly_audit',
+        enabled: true,
+        notifyChannels: ['email']
+      }
+    };
+
     return {
       plans: {},
       conversations: [],
@@ -231,6 +301,11 @@ export class AppStorage {
       trips: initialTrips,
       dossiers: {},
       routines: {},
+      voiceProfile: ExecutiveVoiceProfileSchema.parse({}),
+      documents: initialDocuments,
+      scheduledJobs: initialScheduledJobs,
+      receipts: {},
+      mobileApprovals: {},
       integrationConfig: {
         useMockGmail: true,
         aiProvider: 'mock'
@@ -478,6 +553,119 @@ export class AppStorage {
     return Object.values(this.state?.routines || {}).sort((a, b) => 
       new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime()
     );
+  }
+
+  // --- Executive Voice Profile ---
+  public static getVoiceProfile(): ExecutiveVoiceProfile {
+    this.initialize();
+    return this.state?.voiceProfile || ExecutiveVoiceProfileSchema.parse({});
+  }
+
+  public static saveVoiceProfile(profile: Partial<ExecutiveVoiceProfile>): ExecutiveVoiceProfile {
+    this.initialize();
+    if (!this.state) return ExecutiveVoiceProfileSchema.parse({});
+    this.state.voiceProfile = {
+      ...this.getVoiceProfile(),
+      ...profile
+    };
+    this.save();
+    return this.state.voiceProfile;
+  }
+
+  // --- Cloud Document Storage ---
+  public static listDocuments(): CloudDocument[] {
+    this.initialize();
+    return Object.values(this.state?.documents || {}).sort((a, b) => 
+      new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime()
+    );
+  }
+
+  public static getDocument(id: string): CloudDocument | null {
+    this.initialize();
+    return this.state?.documents[id] || null;
+  }
+
+  public static saveDocument(doc: CloudDocument): void {
+    this.initialize();
+    if (!this.state) return;
+    this.state.documents[doc.id] = doc;
+    this.save();
+  }
+
+  public static searchDocuments(query: string): CloudDocument[] {
+    this.initialize();
+    const q = query.toLowerCase().trim();
+    if (!q) return this.listDocuments();
+    return this.listDocuments().filter(doc => 
+      doc.title.toLowerCase().includes(q) ||
+      doc.contentSnippet.toLowerCase().includes(q) ||
+      doc.tags.some(t => t.toLowerCase().includes(q)) ||
+      (doc.summary && doc.summary.toLowerCase().includes(q))
+    );
+  }
+
+  // --- Scheduled Background Jobs ---
+  public static listScheduledJobs(): ScheduledJobConfig[] {
+    this.initialize();
+    return Object.values(this.state?.scheduledJobs || {});
+  }
+
+  public static getScheduledJob(id: string): ScheduledJobConfig | null {
+    this.initialize();
+    return this.state?.scheduledJobs[id] || null;
+  }
+
+  public static saveScheduledJob(job: ScheduledJobConfig): void {
+    this.initialize();
+    if (!this.state) return;
+    this.state.scheduledJobs[job.id] = job;
+    this.save();
+  }
+
+  // --- Parsed Receipts & Invoices ---
+  public static listReceipts(): ParsedReceipt[] {
+    this.initialize();
+    return Object.values(this.state?.receipts || {}).sort((a, b) => 
+      new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime()
+    );
+  }
+
+  public static getReceipt(id: string): ParsedReceipt | null {
+    this.initialize();
+    return this.state?.receipts[id] || null;
+  }
+
+  public static saveReceipt(receipt: ParsedReceipt): void {
+    this.initialize();
+    if (!this.state) return;
+    this.state.receipts[receipt.receiptId] = receipt;
+    this.save();
+  }
+
+  // --- Mobile Approvals ---
+  public static createMobileApproval(planId: string, token: string): void {
+    this.initialize();
+    if (!this.state) return;
+    this.state.mobileApprovals[token] = {
+      planId,
+      token,
+      createdAt: new Date().toISOString(),
+      status: 'pending'
+    };
+    this.save();
+  }
+
+  public static getMobileApproval(token: string): { planId: string; token: string; createdAt: string; status: 'pending' | 'approved' | 'rejected' } | null {
+    this.initialize();
+    return this.state?.mobileApprovals[token] || null;
+  }
+
+  public static resolveMobileApproval(token: string, approved: boolean): boolean {
+    this.initialize();
+    if (!this.state || !this.state.mobileApprovals[token]) return false;
+    this.state.mobileApprovals[token].status = approved ? 'approved' : 'rejected';
+    this.save();
+    return true;
   }
 
   public static reset(): void {

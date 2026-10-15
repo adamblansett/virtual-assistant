@@ -46,6 +46,79 @@ export class MockAIProvider implements IAIProviderAdapter {
           body: 'Here is the update you asked for.'
         }
       });
+    } else if (lower.includes('ghostwrite') || lower.includes('draft reply') || lower.includes('in-voice') || (lower.includes('write') && lower.includes('reply'))) {
+      text = "Drafting an in-voice executive email reply applying your personal communication tone and brevity preferences...";
+      toolCalls.push({
+        id: `call_${Date.now()}_ghostwrite`,
+        name: 'assistant_ghostwrite_reply',
+        arguments: {
+          recipient: 'partner@example.com',
+          subject: 'Re: Strategic Alignment',
+          inquiryContext: lastUserMessage,
+          executiveInstructions: 'Be direct, professional, and express enthusiasm.'
+        }
+      });
+    } else if (lower.includes('coordinate') || (lower.includes('negotiate') && lower.includes('meeting')) || (lower.includes('inbound') && lower.includes('meeting'))) {
+      text = "Coordinating inbound meeting request, evaluating calendar buffers, and preparing proposal options...";
+      toolCalls.push({
+        id: `call_${Date.now()}_coord`,
+        name: 'scheduling_coordinate_meeting',
+        arguments: {
+          sender: 'alex.rivera@venturecorp.com',
+          meetingTopic: 'Series B Strategic Discussion',
+          rawInquiry: lastUserMessage,
+          durationMinutes: 30
+        }
+      });
+    } else if (lower.includes('parse receipt') || (lower.includes('receipt') && (lower.includes('upload') || lower.includes('extract') || lower.includes('parse') || lower.includes('scan') || lower.includes('$')))) {
+      text = "Parsing receipt document, extracting itemized tax and line items, and updating financial ledger...";
+      toolCalls.push({
+        id: `call_${Date.now()}_rcpt`,
+        name: 'finance_parse_receipt_document',
+        arguments: {
+          rawText: lastUserMessage,
+          sourceFileName: 'receipt_upload.pdf'
+        }
+      });
+    } else if (lower.includes('flight') && (lower.includes('status') || lower.includes('track') || lower.includes('delay') || lower.includes('gate') || lower.includes('dl') || lower.includes('ua') || lower.includes('aa'))) {
+      text = "Tracking real-time flight telemetry, monitoring gate changes, and syncing calendar updates...";
+      const flightMatch = lastUserMessage.match(/([A-Z]{2}\s*\d{2,4})/i);
+      toolCalls.push({
+        id: `call_${Date.now()}_flight`,
+        name: 'travel_track_flight_status',
+        arguments: {
+          flightNumber: flightMatch ? flightMatch[1].toUpperCase() : 'DL 428'
+        }
+      });
+    } else if (!lower.includes('remind') && !lower.includes('task') && !lower.includes('todo') && ((lower.includes('document') && (lower.includes('search') || lower.includes('find') || lower.includes('summarize') || lower.includes('summary') || lower.includes('open') || lower.includes('drive'))) || lower.includes('contract') || lower.includes('nda') || lower.includes('board deck') || lower.includes('soc-2') || lower.includes('drive search'))) {
+      if (lower.includes('summarize') || lower.includes('summary')) {
+        text = "Summarizing cloud document and analyzing core business and legal terms...";
+        toolCalls.push({
+          id: `call_${Date.now()}_doc_sum`,
+          name: 'drive_summarize_document',
+          arguments: {
+            idOrTitle: lastUserMessage.replace(/summarize/i, '').replace(/document/i, '').trim() || 'Acme Master Services Agreement'
+          }
+        });
+      } else {
+        text = "Searching cloud documents and indexing executive repositories...";
+        toolCalls.push({
+          id: `call_${Date.now()}_doc_search`,
+          name: 'drive_search_documents',
+          arguments: {
+            query: lastUserMessage.replace(/search/i, '').replace(/documents?/i, '').trim() || 'contract'
+          }
+        });
+      }
+    } else if (lower.includes('scheduler') || lower.includes('evaluate jobs') || lower.includes('background daemon') || lower.includes('due jobs')) {
+      text = "Evaluating scheduled background jobs and recurring routines...";
+      toolCalls.push({
+        id: `call_${Date.now()}_sched`,
+        name: 'scheduler_evaluate_jobs',
+        arguments: {
+          forceAll: false
+        }
+      });
     } else if (
       lower.includes('calendar') || 
       lower.includes('meeting') || 

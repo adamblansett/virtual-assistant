@@ -25,6 +25,12 @@ import { SmartSchedulingService } from '@/lib/services/scheduling';
 import { MeetingPrepService } from '@/lib/services/meeting_prep';
 import { TravelItineraryService } from '@/lib/services/travel';
 import { AssistantAutomationService } from '@/lib/services/automation';
+import { ExecutiveGhostwriterService } from '@/lib/services/ghostwriter';
+import { SchedulingCoordinatorService } from '@/lib/services/scheduling_coordinator';
+import { ReceiptParserService } from '@/lib/services/receipt_parser';
+import { CloudDriveSyncService } from '@/lib/services/drive_sync';
+import { FlightTrackerService } from '@/lib/services/flight_tracker';
+import { BackgroundSchedulerService } from '@/lib/services/scheduler';
 
 export interface ToolDefinition {
   name: string;
@@ -149,6 +155,42 @@ export const TravelCreateItineraryArgsSchema = z.object({
 
 export const AssistantRunRoutineArgsSchema = z.object({
   routineType: z.enum(['morning_briefing', 'evening_wrapup', 'weekly_audit'])
+});
+
+export const AssistantGhostwriteReplyArgsSchema = z.object({
+  recipient: z.string().min(1),
+  subject: z.string().min(1),
+  inquiryContext: z.string().min(1),
+  executiveInstructions: z.string().optional()
+});
+
+export const SchedulingCoordinateMeetingArgsSchema = z.object({
+  sender: z.string().min(1),
+  meetingTopic: z.string().min(1),
+  rawInquiry: z.string().min(1),
+  durationMinutes: z.number().default(30),
+  preferredTimeRange: z.string().optional()
+});
+
+export const FinanceParseReceiptDocumentArgsSchema = z.object({
+  rawText: z.string().min(1),
+  sourceFileName: z.string().optional()
+});
+
+export const DriveSearchDocumentsArgsSchema = z.object({
+  query: z.string().min(1)
+});
+
+export const DriveSummarizeDocumentArgsSchema = z.object({
+  idOrTitle: z.string().min(1)
+});
+
+export const TravelTrackFlightStatusArgsSchema = z.object({
+  flightNumber: z.string().min(1)
+});
+
+export const SchedulerEvaluateJobsArgsSchema = z.object({
+  forceAll: z.boolean().default(false)
 });
 
 export interface AdaptersBundle {
@@ -462,6 +504,76 @@ export class ToolRegistry {
       requiredPermission: 'assistant.read',
       approvalRequiredByDefault: false
     });
+
+    this.registerTool({
+      name: 'assistant_ghostwrite_reply',
+      integration: 'assistant',
+      description: 'Drafts an in-voice email response applying executive communication style, tone, and brevity preferences.',
+      schema: AssistantGhostwriteReplyArgsSchema,
+      riskLevel: 'reversible_write',
+      requiredPermission: 'gmail.compose',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'scheduling_coordinate_meeting',
+      integration: 'assistant',
+      description: 'Coordinates inbound meeting requests, proposes buffer-conscious open slots, or automatically books confirmed times.',
+      schema: SchedulingCoordinateMeetingArgsSchema,
+      riskLevel: 'reversible_write',
+      requiredPermission: 'calendar.events',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'finance_parse_receipt_document',
+      integration: 'assistant',
+      description: 'Parses a receipt or invoice document, extracts itemized amounts and taxes, and syncs into expenses ledger.',
+      schema: FinanceParseReceiptDocumentArgsSchema,
+      riskLevel: 'reversible_write',
+      requiredPermission: 'finance.write',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'drive_search_documents',
+      integration: 'assistant',
+      description: 'Searches cloud documents, agreements, board presentations, and corporate files.',
+      schema: DriveSearchDocumentsArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'files.read',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'drive_summarize_document',
+      integration: 'assistant',
+      description: 'Summarizes an indexed cloud document and extracts key business and legal terms.',
+      schema: DriveSummarizeDocumentArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'files.read',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'travel_track_flight_status',
+      integration: 'assistant',
+      description: 'Tracks flight status, delays, gate changes, and automatically updates calendar schedules.',
+      schema: TravelTrackFlightStatusArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'assistant.read',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'scheduler_evaluate_jobs',
+      integration: 'assistant',
+      description: 'Evaluates and runs due scheduled background jobs and recurring automations.',
+      schema: SchedulerEvaluateJobsArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'assistant.read',
+      approvalRequiredByDefault: false
+    });
   }
 
   public static registerTool(tool: ToolDefinition): void {
@@ -717,6 +829,40 @@ export class ToolRegistry {
       case 'assistant_run_routine': {
         const args = AssistantRunRoutineArgsSchema.parse(rawArgs);
         return await AssistantAutomationService.runRoutine(args.routineType);
+      }
+
+      case 'assistant_ghostwrite_reply': {
+        const args = AssistantGhostwriteReplyArgsSchema.parse(rawArgs);
+        return await ExecutiveGhostwriterService.ghostwriteReply(args);
+      }
+
+      case 'scheduling_coordinate_meeting': {
+        const args = SchedulingCoordinateMeetingArgsSchema.parse(rawArgs);
+        return await SchedulingCoordinatorService.coordinateMeeting(args);
+      }
+
+      case 'finance_parse_receipt_document': {
+        const args = FinanceParseReceiptDocumentArgsSchema.parse(rawArgs);
+        return ReceiptParserService.parseReceiptDocument(args.rawText, args.sourceFileName);
+      }
+
+      case 'drive_search_documents': {
+        const args = DriveSearchDocumentsArgsSchema.parse(rawArgs);
+        return CloudDriveSyncService.searchDocuments(args.query);
+      }
+
+      case 'drive_summarize_document': {
+        const args = DriveSummarizeDocumentArgsSchema.parse(rawArgs);
+        return CloudDriveSyncService.summarizeDocument(args.idOrTitle);
+      }
+
+      case 'travel_track_flight_status': {
+        const args = TravelTrackFlightStatusArgsSchema.parse(rawArgs);
+        return await FlightTrackerService.trackFlight(args.flightNumber);
+      }
+
+      case 'scheduler_evaluate_jobs': {
+        return await BackgroundSchedulerService.evaluateAndRunDueJobs();
       }
 
       default:

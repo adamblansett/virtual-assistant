@@ -273,3 +273,150 @@ export const RoutineExecutionResultSchema = z.object({
 });
 export type RoutineExecutionResult = z.infer<typeof RoutineExecutionResultSchema>;
 
+// --- Executive Voice Matching & Email Ghostwriting ---
+export const ExecutiveVoiceProfileSchema = z.object({
+  tone: z.enum(['concise_professional', 'warm_executive', 'formal_corporate', 'casual_direct']).default('concise_professional'),
+  typicalGreeting: z.string().default('Hi {{name}},'),
+  typicalSignOff: z.string().default('Best regards,\nAdam'),
+  formalityLevel: z.number().min(1).max(5).default(3),
+  brevityPreference: z.enum(['ultra_brief', 'balanced', 'detailed']).default('balanced'),
+  preferredPhrases: z.array(z.string()).default([]),
+  avoidPhrases: z.array(z.string()).default([])
+});
+export type ExecutiveVoiceProfile = z.infer<typeof ExecutiveVoiceProfileSchema>;
+
+export const GhostwriteRequestSchema = z.object({
+  recipient: z.string(),
+  subject: z.string(),
+  inquiryContext: z.string(),
+  executiveInstructions: z.string().optional(),
+  voiceProfile: ExecutiveVoiceProfileSchema.optional()
+});
+export type GhostwriteRequest = z.infer<typeof GhostwriteRequestSchema>;
+
+export const GhostwriteResultSchema = z.object({
+  draftId: z.string(),
+  to: z.string(),
+  subject: z.string(),
+  body: z.string(),
+  toneApplied: z.string(),
+  suggestedAction: z.string()
+});
+export type GhostwriteResult = z.infer<typeof GhostwriteResultSchema>;
+
+// --- Multi-Turn Email Scheduling Coordinator ---
+export const SchedulingInquirySchema = z.object({
+  sender: z.string(),
+  meetingTopic: z.string(),
+  rawInquiry: z.string(),
+  durationMinutes: z.number().default(30),
+  preferredTimeRange: z.string().optional()
+});
+export type SchedulingInquiry = z.infer<typeof SchedulingInquirySchema>;
+
+export const SchedulingProposalResultSchema = z.object({
+  inquirySender: z.string(),
+  meetingTopic: z.string(),
+  proposedSlots: z.array(z.object({
+    startIso: z.string(),
+    endIso: z.string(),
+    formattedWindow: z.string()
+  })),
+  responseDraft: z.object({
+    to: z.string(),
+    subject: z.string(),
+    body: z.string()
+  }),
+  status: z.enum(['slots_proposed', 'meeting_booked', 'conflict_detected'])
+});
+export type SchedulingProposalResult = z.infer<typeof SchedulingProposalResultSchema>;
+
+// --- PDF & Receipt OCR Extraction ---
+export const ParsedReceiptItemSchema = z.object({
+  description: z.string(),
+  amount: z.number(),
+  quantity: z.number().default(1)
+});
+export type ParsedReceiptItem = z.infer<typeof ParsedReceiptItemSchema>;
+
+export const ParsedReceiptSchema = z.object({
+  receiptId: z.string(),
+  merchantName: z.string(),
+  transactionDate: z.string(),
+  currency: z.string().default('USD'),
+  totalAmount: z.number(),
+  taxAmount: z.number().default(0),
+  category: z.enum(['software', 'travel', 'meals', 'office', 'utilities', 'financial', 'other']),
+  lineItems: z.array(ParsedReceiptItemSchema),
+  confidenceScore: z.number().min(0).max(1),
+  rawDocumentSnippet: z.string().optional()
+});
+export type ParsedReceipt = z.infer<typeof ParsedReceiptSchema>;
+
+// --- Cloud Document & Drive Sync ---
+export const CloudDocumentSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  mimeType: z.string(),
+  path: z.string(),
+  lastModified: z.string(),
+  owner: z.string(),
+  tags: z.array(z.string()).default([]),
+  contentSnippet: z.string(),
+  summary: z.string().optional()
+});
+export type CloudDocument = z.infer<typeof CloudDocumentSchema>;
+
+// --- Real-Time Flight Status Tracking ---
+export const FlightTrackingUpdateSchema = z.object({
+  flightNumber: z.string(),
+  airline: z.string(),
+  departureAirport: z.string(),
+  arrivalAirport: z.string(),
+  scheduledDeparture: z.string(),
+  estimatedDeparture: z.string(),
+  scheduledArrival: z.string(),
+  estimatedArrival: z.string(),
+  status: z.enum(['on_time', 'delayed', 'boarding', 'in_air', 'landed', 'cancelled']),
+  departureGate: z.string().optional(),
+  arrivalGate: z.string().optional(),
+  baggageCarousel: z.string().optional(),
+  delayMinutes: z.number().default(0),
+  alertMessage: z.string().optional()
+});
+export type FlightTrackingUpdate = z.infer<typeof FlightTrackingUpdateSchema>;
+
+// --- Omnichannel & Mobile Approvals ---
+export const OmnichannelMessageSchema = z.object({
+  channel: z.enum(['telegram', 'whatsapp', 'slack', 'sms', 'voice_note', 'web']),
+  senderId: z.string(),
+  senderName: z.string().optional(),
+  text: z.string(),
+  audioUrl: z.string().optional(),
+  timestamp: z.string().optional()
+});
+export type OmnichannelMessage = z.infer<typeof OmnichannelMessageSchema>;
+
+export const OmnichannelResponseSchema = z.object({
+  channel: z.enum(['telegram', 'whatsapp', 'slack', 'sms', 'voice_note', 'web']),
+  recipientId: z.string(),
+  replyText: z.string(),
+  requiresApproval: z.boolean().default(false),
+  planId: z.string().optional(),
+  approvalToken: z.string().optional()
+});
+export type OmnichannelResponse = z.infer<typeof OmnichannelResponseSchema>;
+
+// --- Background Scheduler Configuration ---
+export const ScheduledJobConfigSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  cronExpression: z.string(),
+  routineType: AssistantRoutineTypeSchema,
+  enabled: z.boolean().default(true),
+  lastRunAt: z.string().optional(),
+  nextRunAt: z.string().optional(),
+  notifyChannels: z.array(z.enum(['email', 'telegram', 'slack', 'sms'])).default(['email'])
+});
+export type ScheduledJobConfig = z.infer<typeof ScheduledJobConfigSchema>;
+
