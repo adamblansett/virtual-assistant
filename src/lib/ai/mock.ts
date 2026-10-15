@@ -54,7 +54,27 @@ export class MockAIProvider implements IAIProviderAdapter {
       lower.includes('open time') || 
       lower.includes('availability')
     ) {
-      if (
+      if (lower.includes('dossier') || lower.includes('prep') || (lower.includes('brief') && lower.includes('meeting'))) {
+        text = "Compiling executive briefing dossier for your meeting...";
+        toolCalls.push({
+          id: `call_${Date.now()}_dossier`,
+          name: 'meeting_prepare_dossier',
+          arguments: {
+            meetingId: 'evt_sync_01'
+          }
+        });
+      } else if (lower.includes('note') || lower.includes('recap')) {
+        text = "Processing meeting notes, extracting action item tasks, and drafting follow-up email recap...";
+        toolCalls.push({
+          id: `call_${Date.now()}_notes`,
+          name: 'meeting_process_notes',
+          arguments: {
+            meetingTitle: 'Executive Strategy Sync',
+            rawNotes: lastUserMessage,
+            attendees: ['sarah.chen@partnercorp.com', 'marcus.vance@vanceholdings.com']
+          }
+        });
+      } else if (
         lower.includes('free slot') || 
         lower.includes('open time') || 
         lower.includes('find time') || 
@@ -183,6 +203,81 @@ export class MockAIProvider implements IAIProviderAdapter {
           arguments: {
             filePath: 'output.txt',
             content: 'Automated test output'
+          }
+        });
+      }
+    } else if (lower.includes('dossier') || lower.includes('meeting prep') || lower.includes('prepare meeting') || lower.includes('brief me on meeting')) {
+      text = "Compiling executive briefing dossier for your meeting...";
+      toolCalls.push({
+        id: `call_${Date.now()}_dossier`,
+        name: 'meeting_prepare_dossier',
+        arguments: {
+          meetingId: 'evt_sync_01'
+        }
+      });
+    } else if (lower.includes('meeting note') || lower.includes('process notes') || lower.includes('meeting recap')) {
+      text = "Processing meeting notes, extracting action item tasks, and drafting follow-up email recap...";
+      toolCalls.push({
+        id: `call_${Date.now()}_notes`,
+        name: 'meeting_process_notes',
+        arguments: {
+          meetingTitle: 'Executive Strategy Sync',
+          rawNotes: lastUserMessage,
+          attendees: ['sarah.chen@partnercorp.com', 'marcus.vance@vanceholdings.com']
+        }
+      });
+    } else if (lower.includes('trip') || lower.includes('itinerary') || lower.includes('flight') || lower.includes('hotel') || lower.includes('travel')) {
+      if (lower.includes('extract') || lower.includes('scan') || lower.includes('reservation') || lower.includes('confirm')) {
+        text = "Scanning inbox for flight and hotel reservation confirmations...";
+        toolCalls.push({
+          id: `call_${Date.now()}_travel_extract`,
+          name: 'travel_extract_reservations',
+          arguments: {}
+        });
+      } else if (lower.includes('create') || lower.includes('plan') || lower.includes('book') || lower.includes('schedule trip')) {
+        text = "Creating executive business travel itinerary and synchronizing with your calendar...";
+        toolCalls.push({
+          id: `call_${Date.now()}_travel_create`,
+          name: 'travel_create_itinerary',
+          arguments: {
+            destination: 'New York, NY',
+            purpose: 'Quarterly Board Meeting & Client Dinner'
+          }
+        });
+      } else {
+        text = "Retrieving executive travel itineraries and flight details...";
+        toolCalls.push({
+          id: `call_${Date.now()}_travel_list`,
+          name: 'travel_list_trips',
+          arguments: {}
+        });
+      }
+    } else if (lower.includes('routine') || lower.includes('wrap-up') || lower.includes('wrapup') || lower.includes('audit') || lower.includes('kickoff')) {
+      if (lower.includes('evening') || lower.includes('wrap')) {
+        text = "Executing evening wrap-up routine: auditing completed tasks and previewing tomorrow's calendar commitments...";
+        toolCalls.push({
+          id: `call_${Date.now()}_routine_evening`,
+          name: 'assistant_run_routine',
+          arguments: {
+            routineType: 'evening_wrapup'
+          }
+        });
+      } else if (lower.includes('audit') || lower.includes('weekly')) {
+        text = "Executing weekly executive audit: relationship cadences, follow-ups, and expense summaries...";
+        toolCalls.push({
+          id: `call_${Date.now()}_routine_weekly`,
+          name: 'assistant_run_routine',
+          arguments: {
+            routineType: 'weekly_audit'
+          }
+        });
+      } else {
+        text = "Executing proactive morning kickoff routine...";
+        toolCalls.push({
+          id: `call_${Date.now()}_routine_morning`,
+          name: 'assistant_run_routine',
+          arguments: {
+            routineType: 'morning_briefing'
           }
         });
       }

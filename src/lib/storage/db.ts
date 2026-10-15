@@ -8,7 +8,8 @@ import fs from 'fs';
 import path from 'path';
 import { 
   TaskPlan, UserPreferences, UserPreferencesSchema,
-  TaskItem, ContactItem, ExpenseRecord 
+  TaskItem, ContactItem, ExpenseRecord,
+  TripItinerary, MeetingDossier, RoutineExecutionResult
 } from '@/types';
 
 interface AppState {
@@ -18,6 +19,9 @@ interface AppState {
   tasks: Record<string, TaskItem>;
   contacts: Record<string, ContactItem>;
   expenses: Record<string, ExpenseRecord>;
+  trips: Record<string, TripItinerary>;
+  dossiers: Record<string, MeetingDossier>;
+  routines: Record<string, RoutineExecutionResult>;
   integrationConfig: {
     useMockGmail: boolean;
     aiProvider: string;
@@ -146,6 +150,77 @@ export class AppStorage {
       }
     };
 
+    const tripStart = new Date(now.getTime() + 5 * 86400000).toISOString().split('T')[0];
+    const tripEnd = new Date(now.getTime() + 7 * 86400000).toISOString().split('T')[0];
+
+    const initialTrips: Record<string, TripItinerary> = {
+      'trip_nyc_01': {
+        id: 'trip_nyc_01',
+        destination: 'New York, NY',
+        purpose: 'Q4 Enterprise Client Summit & Board Dinner',
+        startDate: tripStart,
+        endDate: tripEnd,
+        flights: [
+          {
+            confirmationCode: 'DL-89324B',
+            airline: 'Delta Air Lines',
+            flightNumber: 'DL 428',
+            departureAirport: 'BOS',
+            arrivalAirport: 'JFK',
+            departureTime: `${tripStart}T08:30:00Z`,
+            arrivalTime: `${tripStart}T10:00:00Z`,
+            seat: '3A',
+            status: 'confirmed'
+          },
+          {
+            confirmationCode: 'DL-89324B',
+            airline: 'Delta Air Lines',
+            flightNumber: 'DL 1192',
+            departureAirport: 'JFK',
+            arrivalAirport: 'BOS',
+            departureTime: `${tripEnd}T18:15:00Z`,
+            arrivalTime: `${tripEnd}T19:40:00Z`,
+            seat: '4D',
+            status: 'confirmed'
+          }
+        ],
+        hotel: {
+          confirmationCode: 'MR-90214',
+          hotelName: 'The Langham, New York, Fifth Avenue',
+          address: '400 5th Ave, New York, NY 10018',
+          checkInDate: tripStart,
+          checkOutDate: tripEnd,
+          roomType: 'Executive King Suite',
+          status: 'confirmed'
+        },
+        dailySchedule: [
+          {
+            date: tripStart,
+            events: [
+              { time: '08:30 AM', description: 'Flight DL 428 departs BOS for JFK', type: 'flight', location: 'Boston Logan Terminal A' },
+              { time: '11:30 AM', description: 'Check in at The Langham New York', type: 'hotel', location: '400 5th Ave' },
+              { time: '02:00 PM', description: 'Opening Keynote & Partner Kickoff', type: 'meeting', location: 'Summit Ballroom' },
+              { time: '07:00 PM', description: 'Executive Dinner with Alice Johnson (Acme Corp)', type: 'meal', location: 'Le Bernardin' }
+            ]
+          },
+          {
+            date: tripEnd,
+            events: [
+              { time: '10:00 AM', description: 'Enterprise Architecture Workshop', type: 'meeting', location: 'Executive Conference Room 4' },
+              { time: '01:00 PM', description: 'Hotel Check-out & Uber to JFK', type: 'transport', location: 'Hotel Lobby' },
+              { time: '06:15 PM', description: 'Flight DL 1192 departs JFK for BOS', type: 'flight', location: 'JFK Terminal 4' }
+            ]
+          }
+        ],
+        packingTips: [
+          'Business formal attire for Board Dinner',
+          'Laptop charger, USB-C adapter, and printed summit pass',
+          'Umbrella (autumn weather in NYC)'
+        ],
+        status: 'upcoming'
+      }
+    };
+
     return {
       plans: {},
       conversations: [],
@@ -153,6 +228,9 @@ export class AppStorage {
       tasks: initialTasks,
       contacts: initialContacts,
       expenses: initialExpenses,
+      trips: initialTrips,
+      dossiers: {},
+      routines: {},
       integrationConfig: {
         useMockGmail: true,
         aiProvider: 'mock'
@@ -338,6 +416,67 @@ export class AppStorage {
     this.initialize();
     return Object.values(this.state?.expenses || {}).sort((a, b) => 
       new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+  }
+
+  // --- Trips & Travel ---
+  public static saveTrip(trip: TripItinerary): void {
+    this.initialize();
+    if (!this.state) return;
+    this.state.trips[trip.id] = trip;
+    this.save();
+  }
+
+  public static getTrip(id: string): TripItinerary | null {
+    this.initialize();
+    return this.state?.trips[id] || null;
+  }
+
+  public static listTrips(): TripItinerary[] {
+    this.initialize();
+    return Object.values(this.state?.trips || {}).sort((a, b) => 
+      new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
+    );
+  }
+
+  public static deleteTrip(id: string): boolean {
+    this.initialize();
+    if (!this.state || !this.state.trips[id]) return false;
+    delete this.state.trips[id];
+    this.save();
+    return true;
+  }
+
+  // --- Meeting Dossiers ---
+  public static saveMeetingDossier(dossier: MeetingDossier): void {
+    this.initialize();
+    if (!this.state) return;
+    this.state.dossiers[dossier.meetingId] = dossier;
+    this.save();
+  }
+
+  public static getMeetingDossier(meetingId: string): MeetingDossier | null {
+    this.initialize();
+    return this.state?.dossiers[meetingId] || null;
+  }
+
+  public static listMeetingDossiers(): MeetingDossier[] {
+    this.initialize();
+    return Object.values(this.state?.dossiers || {});
+  }
+
+  // --- Automation Routines ---
+  public static saveRoutineResult(result: RoutineExecutionResult): void {
+    this.initialize();
+    if (!this.state) return;
+    this.state.routines[result.id] = result;
+    this.save();
+  }
+
+  public static listRoutineResults(): RoutineExecutionResult[] {
+    this.initialize();
+    return Object.values(this.state?.routines || {}).sort((a, b) => 
+      new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime()
     );
   }
 

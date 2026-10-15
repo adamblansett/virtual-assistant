@@ -175,3 +175,101 @@ export interface ExecutiveBriefing {
   summaryText: string;
 }
 
+// --- Meeting Intelligence & Dossier ---
+export const MeetingDossierSchema = z.object({
+  meetingId: z.string(),
+  title: z.string(),
+  startTime: z.string(),
+  endTime: z.string(),
+  location: z.string().optional(),
+  attendees: z.array(z.object({
+    name: z.string(),
+    email: z.string(),
+    isVIP: z.boolean(),
+    company: z.string().optional(),
+    role: z.string().optional(),
+    contextNotes: z.array(z.string()),
+    recentEmailThreads: z.array(z.object({
+      subject: z.string(),
+      date: z.string(),
+      snippet: z.string()
+    }))
+  })),
+  relevantTasks: z.array(TaskItemSchema),
+  executivePrepSummary: z.string(),
+  talkingPoints: z.array(z.string())
+});
+export type MeetingDossier = z.infer<typeof MeetingDossierSchema>;
+
+export const MeetingNotesProcessingResultSchema = z.object({
+  extractedTasks: z.array(TaskItemSchema),
+  followUpDraft: z.object({
+    recipients: z.array(z.string()),
+    subject: z.string(),
+    body: z.string()
+  }),
+  summary: z.string()
+});
+export type MeetingNotesProcessingResult = z.infer<typeof MeetingNotesProcessingResultSchema>;
+
+// --- Travel & Itinerary Coordination ---
+export const FlightSegmentSchema = z.object({
+  confirmationCode: z.string(),
+  airline: z.string(),
+  flightNumber: z.string(),
+  departureAirport: z.string(),
+  arrivalAirport: z.string(),
+  departureTime: z.string(),
+  arrivalTime: z.string(),
+  seat: z.string().optional(),
+  status: z.enum(['confirmed', 'delayed', 'cancelled']).default('confirmed')
+});
+export type FlightSegment = z.infer<typeof FlightSegmentSchema>;
+
+export const HotelReservationSchema = z.object({
+  confirmationCode: z.string(),
+  hotelName: z.string(),
+  address: z.string(),
+  checkInDate: z.string(),
+  checkOutDate: z.string(),
+  roomType: z.string().optional(),
+  status: z.enum(['confirmed', 'cancelled']).default('confirmed')
+});
+export type HotelReservation = z.infer<typeof HotelReservationSchema>;
+
+export const TripItinerarySchema = z.object({
+  id: z.string(),
+  destination: z.string(),
+  purpose: z.string(),
+  startDate: z.string(),
+  endDate: z.string(),
+  flights: z.array(FlightSegmentSchema),
+  hotel: HotelReservationSchema.optional(),
+  dailySchedule: z.array(z.object({
+    date: z.string(),
+    events: z.array(z.object({
+      time: z.string(),
+      description: z.string(),
+      type: z.enum(['flight', 'hotel', 'meeting', 'meal', 'transport', 'reminder']),
+      location: z.string().optional()
+    }))
+  })),
+  packingTips: z.array(z.string()).default([]),
+  status: z.enum(['upcoming', 'in_progress', 'completed', 'cancelled']).default('upcoming')
+});
+export type TripItinerary = z.infer<typeof TripItinerarySchema>;
+
+// --- Assistant Automation Routines ---
+export const AssistantRoutineTypeSchema = z.enum(['morning_briefing', 'evening_wrapup', 'weekly_audit']);
+export type AssistantRoutineType = z.infer<typeof AssistantRoutineTypeSchema>;
+
+export const RoutineExecutionResultSchema = z.object({
+  id: z.string(),
+  routineType: AssistantRoutineTypeSchema,
+  executedAt: z.string(),
+  status: z.enum(['succeeded', 'failed']),
+  summary: z.string(),
+  generatedArtifacts: z.record(z.string(), z.any())
+});
+export type RoutineExecutionResult = z.infer<typeof RoutineExecutionResultSchema>;
+

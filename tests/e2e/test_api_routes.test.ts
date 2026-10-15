@@ -91,4 +91,61 @@ describe('API Routes E2E - Full Interactive Workflow', () => {
     const configData = await configRes.json();
     expect(configData.config.aiProvider).toBe('gemini');
   });
+
+  it('manages meeting dossiers, note processing, travel, and routines via REST API', async () => {
+    // 1. Meeting Dossier API
+    const { GET: dossierGET, POST: dossierPOST } = await import('@/app/api/meetings/dossier/route');
+    
+    // GET all dossiers
+    const dListReq = new NextRequest(new URL('http://localhost:3000/api/meetings/dossier'));
+    const dListRes = await dossierGET(dListReq);
+    expect(dListRes.status).toBe(200);
+    const dListData = await dListRes.json();
+    expect(Array.isArray(dListData.dossiers)).toBe(true);
+
+    // POST process meeting notes
+    const notesReq = createJsonRequest('http://localhost:3000/api/meetings/dossier', {
+      action: 'process_notes',
+      meetingTitle: 'Client Review Meeting',
+      rawNotes: '- Action: Send project charter\n- Todo: Review invoice'
+    });
+    const notesRes = await dossierPOST(notesReq);
+    expect(notesRes.status).toBe(200);
+    const notesData = await notesRes.json();
+    expect(notesData.result.extractedTasks.length).toBe(2);
+
+    // 2. Travel API
+    const { GET: travelGET, POST: travelPOST } = await import('@/app/api/travel/route');
+
+    // GET trips
+    const trRes = await travelGET();
+    expect(trRes.status).toBe(200);
+    const trData = await trRes.json();
+    expect(trData.trips.length).toBeGreaterThanOrEqual(1);
+
+    // POST extract travel
+    const extractReq = createJsonRequest('http://localhost:3000/api/travel', {
+      action: 'extract'
+    });
+    const extractRes = await travelPOST(extractReq);
+    expect(extractRes.status).toBe(200);
+
+    // 3. Routines API
+    const { GET: routinesGET, POST: routinesPOST } = await import('@/app/api/routines/route');
+
+    // POST trigger morning routine
+    const routineReq = createJsonRequest('http://localhost:3000/api/routines', {
+      routineType: 'morning_briefing'
+    });
+    const routineRes = await routinesPOST(routineReq);
+    expect(routineRes.status).toBe(200);
+    const routineData = await routineRes.json();
+    expect(routineData.result.status).toBe('succeeded');
+
+    // GET routine history
+    const historyRes = await routinesGET();
+    expect(historyRes.status).toBe(200);
+    const historyData = await historyRes.json();
+    expect(historyData.routines.length).toBeGreaterThanOrEqual(1);
+  });
 });

@@ -6,12 +6,16 @@ import {
   AlertTriangle, Clock, RefreshCw, Mail, Settings, 
   FileText, Play, XCircle, Eye, Lock,
   ChevronRight, Sparkles, Filter, Calendar as CalendarIcon,
-  Folder, ListTodo, CheckSquare, Users, DollarSign, Sun, Star, Plus, Search
+  Folder, ListTodo, CheckSquare, Users, DollarSign, Sun, Star, Plus, Search,
+  Briefcase, Plane, Hotel, FileCheck, Repeat
 } from 'lucide-react';
-import { TaskPlan, AuditEvent, UserPreferences, TaskItem, ContactItem, ExpenseRecord, ExecutiveBriefing } from '@/types';
+import { 
+  TaskPlan, AuditEvent, UserPreferences, TaskItem, ContactItem, ExpenseRecord, ExecutiveBriefing,
+  MeetingDossier, TripItinerary, RoutineExecutionResult
+} from '@/types';
 
 export default function AssistantApp() {
-  const [activeTab, setActiveTab] = useState<'chat' | 'briefing' | 'tasks' | 'contacts' | 'expenses' | 'jobs' | 'calendar' | 'files' | 'history' | 'integrations' | 'audit' | 'preferences'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'briefing' | 'tasks' | 'contacts' | 'expenses' | 'dossiers' | 'travel' | 'routines' | 'jobs' | 'calendar' | 'files' | 'history' | 'integrations' | 'audit' | 'preferences'>('chat');
   const [inputMessage, setInputMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -35,6 +39,10 @@ export default function AssistantApp() {
   const [contacts, setContacts] = useState<ContactItem[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
   const [expenseSummary, setExpenseSummary] = useState<{ totalAmount: number; currency: string; byCategory: Record<string, number>; count: number } | null>(null);
+  const [dossiers, setDossiers] = useState<MeetingDossier[]>([]);
+  const [selectedDossier, setSelectedDossier] = useState<MeetingDossier | null>(null);
+  const [trips, setTrips] = useState<TripItinerary[]>([]);
+  const [routineHistory, setRoutineHistory] = useState<RoutineExecutionResult[]>([]);
 
   // Forms and filter states
   const [taskFilter, setTaskFilter] = useState<'all' | 'todo' | 'completed'>('all');
@@ -44,6 +52,11 @@ export default function AssistantApp() {
   const [newExpenseMerchant, setNewExpenseMerchant] = useState('');
   const [newExpenseAmount, setNewExpenseAmount] = useState('');
   const [newExpenseCategory, setNewExpenseCategory] = useState<'software' | 'travel' | 'meals' | 'office' | 'utilities' | 'financial' | 'other'>('software');
+  const [notesMeetingTitle, setNotesMeetingTitle] = useState('');
+  const [rawNotesContent, setRawNotesContent] = useState('');
+  const [processedNotesResult, setProcessedNotesResult] = useState<any | null>(null);
+  const [isProcessingNotes, setIsProcessingNotes] = useState(false);
+  const [isRunningRoutine, setIsRunningRoutine] = useState<string | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -139,6 +152,30 @@ export default function AssistantApp() {
         setExpenses(eData.expenses || []);
         setExpenseSummary(eData.summary || null);
       }
+
+      // 12. Fetch meeting dossiers
+      const dossierRes = await fetch('/api/meetings/dossier');
+      if (dossierRes.ok) {
+        const dData = await dossierRes.json();
+        setDossiers(dData.dossiers || []);
+        if (dData.dossiers && dData.dossiers.length > 0) {
+          setSelectedDossier(dData.dossiers[0]);
+        }
+      }
+
+      // 13. Fetch travel itineraries
+      const travelRes = await fetch('/api/travel');
+      if (travelRes.ok) {
+        const trData = await travelRes.json();
+        setTrips(trData.trips || []);
+      }
+
+      // 14. Fetch routine history
+      const rtnRes = await fetch('/api/routines');
+      if (rtnRes.ok) {
+        const rData = await rtnRes.json();
+        setRoutineHistory(rData.routines || []);
+      }
     } catch (err) {
       console.error('Failed to load initial data:', err);
     }
@@ -220,6 +257,110 @@ export default function AssistantApp() {
       }
     } catch (err) {
       console.error('Failed to refresh briefing:', err);
+    }
+  };
+
+  const handleProcessNotes = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!notesMeetingTitle.trim() || !rawNotesContent.trim()) return;
+    setIsProcessingNotes(true);
+    try {
+      const res = await fetch('/api/meetings/dossier', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'process_notes',
+          meetingTitle: notesMeetingTitle.trim(),
+          rawNotes: rawNotesContent.trim()
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProcessedNotesResult(data.result);
+        const tasksRes = await fetch('/api/tasks');
+        if (tasksRes.ok) {
+          const tData = await tasksRes.json();
+          setTasks(tData.tasks || []);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to process notes:', err);
+    } finally {
+      setIsProcessingNotes(false);
+    }
+  };
+
+  const handleExtractTravel = async () => {
+    try {
+      const res = await fetch('/api/travel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'extract' })
+      });
+      if (res.ok) {
+        const trRes = await fetch('/api/travel');
+        if (trRes.ok) {
+          const trData = await trRes.json();
+          setTrips(trData.trips || []);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to extract travel:', err);
+    }
+  };
+
+  const handleTriggerRoutine = async (type: 'morning_briefing' | 'evening_wrapup' | 'weekly_audit') => {
+    setIsRunningRoutine(type);
+    try {
+      const res = await fetch('/api/routines', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ routineType: type })
+      });
+      if (res.ok) {
+        const rtnRes = await fetch('/api/routines');
+        if (rtnRes.ok) {
+          const rData = await rtnRes.json();
+          setRoutineHistory(rData.routines || []);
+        }
+        const bRes = await fetch('/api/briefing');
+        if (bRes.ok) {
+          const bData = await bRes.json();
+          setBriefing(bData.briefing);
+        }
+        const tRes = await fetch('/api/tasks');
+        if (tRes.ok) {
+          const tData = await tRes.json();
+          setTasks(tData.tasks || []);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to trigger routine:', err);
+    } finally {
+      setIsRunningRoutine(null);
+    }
+  };
+
+  const handlePrepareDossierForMeeting = async (meetingId: string) => {
+    try {
+      const res = await fetch(`/api/meetings/dossier?meetingId=${encodeURIComponent(meetingId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.dossier) {
+          setSelectedDossier(data.dossier);
+          setDossiers(prev => {
+            const idx = prev.findIndex(d => d.meetingId === meetingId);
+            if (idx >= 0) {
+              const copy = [...prev];
+              copy[idx] = data.dossier;
+              return copy;
+            }
+            return [data.dossier, ...prev];
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to generate meeting dossier:', err);
     }
   };
 
@@ -462,6 +603,39 @@ export default function AssistantApp() {
         </button>
 
         <button
+          onClick={() => setActiveTab('dossiers')}
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
+            activeTab === 'dossiers'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+          }`}
+        >
+          <Briefcase className="w-4 h-4 text-rose-500" /> Meeting Dossiers & Notes
+        </button>
+
+        <button
+          onClick={() => setActiveTab('travel')}
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
+            activeTab === 'travel'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+          }`}
+        >
+          <Plane className="w-4 h-4 text-sky-500" /> Travel & Itineraries ({trips.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('routines')}
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
+            activeTab === 'routines'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+          }`}
+        >
+          <Repeat className="w-4 h-4 text-amber-500" /> Routines & Automations
+        </button>
+
+        <button
           onClick={() => setActiveTab('jobs')}
           className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
             activeTab === 'jobs'
@@ -588,6 +762,27 @@ export default function AssistantApp() {
                 >
                   <Folder className="w-3.5 h-3.5 text-amber-600" />
                   List Files
+                </button>
+                <button
+                  onClick={() => handleSendMessage('Prepare briefing dossier for my next meeting')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
+                >
+                  <Briefcase className="w-3.5 h-3.5 text-rose-500" />
+                  Prep Meeting Dossier
+                </button>
+                <button
+                  onClick={() => handleSendMessage('Scan my inbox for flight and hotel reservations')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
+                >
+                  <Plane className="w-3.5 h-3.5 text-sky-500" />
+                  Scan Travel Bookings
+                </button>
+                <button
+                  onClick={() => handleSendMessage('Run evening wrap-up routine')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
+                >
+                  <Repeat className="w-3.5 h-3.5 text-amber-500" />
+                  Evening Wrap-Up
                 </button>
               </div>
 
@@ -1402,6 +1597,473 @@ export default function AssistantApp() {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* Meeting Dossiers & Notes Tab */}
+        {activeTab === 'dossiers' && (
+          <div className="p-8 max-w-6xl mx-auto space-y-6 overflow-y-auto h-full">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold">Meeting Intelligence & Executive Dossiers</h2>
+                <p className="text-xs text-zinc-500">
+                  Executive briefing packets for VIP client & board meetings, with attendee bios, email history, and action item note processing.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  if (calendarEvents[0]?.id) {
+                    handlePrepareDossierForMeeting(calendarEvents[0].id);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 text-white shadow-xs hover:bg-indigo-700 transition"
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Prep Upcoming Meeting Dossier
+              </button>
+            </div>
+
+            {/* Two Column Layout: Upcoming Dossier on Left/Top, Note Processor on Right */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Left Column (7 cols): Active Dossier View */}
+              <div className="lg:col-span-7 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">Executive Briefing Dossier</h3>
+                  {dossiers.length > 1 && (
+                    <select
+                      value={selectedDossier?.meetingId || ''}
+                      onChange={(e) => {
+                        const found = dossiers.find(d => d.meetingId === e.target.value);
+                        if (found) setSelectedDossier(found);
+                      }}
+                      className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-1 text-xs"
+                    >
+                      {dossiers.map(d => (
+                        <option key={d.meetingId} value={d.meetingId}>{d.title}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {selectedDossier ? (
+                  <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-5">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 uppercase">
+                          CONFIRMED MEETING
+                        </span>
+                        <span className="text-xs text-zinc-400 font-mono">
+                          {new Date(selectedDossier.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(selectedDossier.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <h4 className="text-base font-bold text-zinc-900 dark:text-zinc-100 mt-1">{selectedDossier.title}</h4>
+                      <p className="text-xs text-zinc-500 mt-0.5">{selectedDossier.location || 'Google Meet / Virtual Video'}</p>
+                    </div>
+
+                    {/* Strategic Summary */}
+                    <div className="p-3.5 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300 block mb-1">
+                        Executive Strategy Brief
+                      </span>
+                      <p className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">
+                        {selectedDossier.executivePrepSummary}
+                      </p>
+                    </div>
+
+                    {/* Talking Points */}
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-2">Key Discussion Objectives</span>
+                      <ul className="space-y-1.5">
+                        {selectedDossier.talkingPoints.map((point, idx) => (
+                          <li key={idx} className="flex items-start gap-2 text-xs text-zinc-700 dark:text-zinc-300">
+                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 mt-1.5 shrink-0" />
+                            <span>{point}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* Attendees Bios */}
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-2">
+                        Attendee Profiles ({selectedDossier.attendees.length})
+                      </span>
+                      <div className="space-y-3">
+                        {selectedDossier.attendees.map((att, idx) => (
+                          <div key={idx} className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-100 dark:border-zinc-800 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{att.name}</span>
+                                {att.isVIP && (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                                    <Star className="w-3 h-3 fill-amber-500 text-amber-500" /> VIP
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[11px] text-zinc-400 font-mono">{att.email}</span>
+                            </div>
+                            <div className="text-[11px] text-zinc-600 dark:text-zinc-400 font-medium">
+                              {att.role} • {att.company}
+                            </div>
+
+                            {att.contextNotes && att.contextNotes.length > 0 && (
+                              <div className="text-[11px] text-zinc-500 dark:text-zinc-400 italic">
+                                &quot;{att.contextNotes[0]}&quot;
+                              </div>
+                            )}
+
+                            {att.recentEmailThreads && att.recentEmailThreads.length > 0 && (
+                              <div className="pt-1 border-t border-zinc-200/50 dark:border-zinc-700/50 text-[11px] text-zinc-500">
+                                <span className="font-semibold text-zinc-600 dark:text-zinc-400">Recent Thread: </span>
+                                {att.recentEmailThreads[0].subject}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Relevant Open Tasks */}
+                    {selectedDossier.relevantTasks && selectedDossier.relevantTasks.length > 0 && (
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-2">
+                          Linked Open Tasks ({selectedDossier.relevantTasks.length})
+                        </span>
+                        <div className="space-y-1.5">
+                          {selectedDossier.relevantTasks.map(t => (
+                            <div key={t.id} className="p-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-800/40 text-xs flex items-center justify-between">
+                              <span className="font-medium text-zinc-800 dark:text-zinc-200">{t.title}</span>
+                              <span className="text-[10px] uppercase font-bold text-amber-600">{t.priority}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-12 text-center rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-900/50">
+                    <Briefcase className="w-8 h-8 text-zinc-400 mx-auto mb-2" />
+                    <p className="text-xs text-zinc-500 font-medium">No meeting dossier compiled yet.</p>
+                    <p className="text-[11px] text-zinc-400 mt-1">Click &quot;Prep Upcoming Meeting Dossier&quot; to synthesize attendee intelligence.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Right Column (5 cols): Post-Meeting Note Processing */}
+              <div className="lg:col-span-5 space-y-4">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">Post-Meeting Notes & Task Extractor</h3>
+                
+                <form onSubmit={handleProcessNotes} className="p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-3">
+                  <div>
+                    <label className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 block mb-1">Meeting Title</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Q4 Executive Strategy Sync"
+                      value={notesMeetingTitle}
+                      onChange={e => setNotesMeetingTitle(e.target.value)}
+                      className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 block mb-1">Raw Discussion Notes</label>
+                    <textarea
+                      rows={6}
+                      placeholder="Paste raw meeting notes, action items, or bullet points:&#10;- Action: Send revised Master Services Agreement&#10;- Todo: Confirm budget allocation with CFO&#10;- Follow up: Schedule product roadmap review"
+                      value={rawNotesContent}
+                      onChange={e => setRawNotesContent(e.target.value)}
+                      className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl p-3 text-xs focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isProcessingNotes || !notesMeetingTitle.trim() || !rawNotesContent.trim()}
+                    className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isProcessingNotes ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FileCheck className="w-3.5 h-3.5" />}
+                    Extract Action Items & Draft Recap
+                  </button>
+                </form>
+
+                {/* Note Processing Output */}
+                {processedNotesResult && (
+                  <div className="p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-emerald-200 dark:border-emerald-900/50 shadow-2xs space-y-4">
+                    <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-xs font-bold">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>{processedNotesResult.summary}</span>
+                    </div>
+
+                    {/* Extracted Tasks */}
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1.5">
+                        Extracted Tasks (Added to Task Manager)
+                      </span>
+                      <div className="space-y-1.5">
+                        {processedNotesResult.extractedTasks.map((t: any) => (
+                          <div key={t.id} className="p-2 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 text-xs text-emerald-900 dark:text-emerald-200 font-medium">
+                            ✓ {t.title}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Drafted Email Recap */}
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1.5">
+                        Drafted Follow-Up Email
+                      </span>
+                      <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 text-xs space-y-2">
+                        <div className="font-semibold text-zinc-800 dark:text-zinc-200">
+                          Subject: {processedNotesResult.followUpDraft.subject}
+                        </div>
+                        <div className="text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap text-[11px] leading-relaxed">
+                          {processedNotesResult.followUpDraft.body}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Executive Travel & Itineraries Tab */}
+        {activeTab === 'travel' && (
+          <div className="p-8 max-w-5xl mx-auto space-y-6 overflow-y-auto h-full">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold">Executive Travel & Itineraries</h2>
+                <p className="text-xs text-zinc-500">Day-by-day travel itineraries, flight segments, hotel bookings, and automatic calendar sync.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleExtractTravel}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
+                >
+                  <Mail className="w-3.5 h-3.5 text-sky-500" /> Scan Inbox for Confirmations
+                </button>
+              </div>
+            </div>
+
+            {trips.length === 0 ? (
+              <div className="p-12 text-center rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-900/50">
+                <Plane className="w-8 h-8 text-zinc-400 mx-auto mb-2" />
+                <p className="text-xs text-zinc-500 font-medium">No business trips registered.</p>
+                <p className="text-[11px] text-zinc-400 mt-1">Scan your inbox or ask the assistant to schedule business travel.</p>
+              </div>
+            ) : (
+              trips.map(trip => (
+                <div key={trip.id} className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-6">
+                  <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 uppercase">
+                          {trip.status}
+                        </span>
+                        <span className="text-xs text-zinc-400 font-mono">{trip.startDate} → {trip.endDate}</span>
+                      </div>
+                      <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 mt-1">{trip.destination}</h3>
+                      <p className="text-xs text-zinc-500 mt-0.5">{trip.purpose}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-xs font-medium">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Synced to Calendar
+                    </div>
+                  </div>
+
+                  {/* Flight Segments */}
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-3">Flight Segments</span>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {trip.flights.map((flight, idx) => (
+                        <div key={idx} className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{flight.airline} • {flight.flightNumber}</span>
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-200 dark:bg-zinc-700 font-bold">
+                              {flight.confirmationCode}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs py-1">
+                            <div>
+                              <div className="text-lg font-bold text-zinc-800 dark:text-zinc-200">{flight.departureAirport}</div>
+                              <div className="text-[10px] text-zinc-400">{new Date(flight.departureTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                            </div>
+                            <div className="text-center px-4">
+                              <Plane className="w-4 h-4 text-sky-500 mx-auto transform rotate-90" />
+                              <span className="text-[10px] text-zinc-400 font-medium">Seat: {flight.seat || 'Unassigned'}</span>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-lg font-bold text-zinc-800 dark:text-zinc-200">{flight.arrivalAirport}</div>
+                              <div className="text-[10px] text-zinc-400">{new Date(flight.arrivalTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Hotel Details */}
+                  {trip.hotel && (
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-3">Hotel Reservation</span>
+                      <div className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 flex flex-wrap justify-between items-center gap-3">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <Hotel className="w-4 h-4 text-indigo-500" />
+                            <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{trip.hotel.hotelName}</span>
+                          </div>
+                          <p className="text-xs text-zinc-500">{trip.hotel.address}</p>
+                          <p className="text-[11px] text-zinc-400 font-medium">Room: {trip.hotel.roomType}</p>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] font-mono px-2.5 py-1 rounded-md bg-zinc-200 dark:bg-zinc-700 font-bold block">
+                            {trip.hotel.confirmationCode}
+                          </span>
+                          <span className="text-[11px] text-zinc-400 mt-1 block">
+                            Check-in: {trip.hotel.checkInDate} • Check-out: {trip.hotel.checkOutDate}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Daily Schedule & Packing Tips */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-2">Schedule Timeline</span>
+                      <div className="space-y-2">
+                        {trip.dailySchedule.map((day, dIdx) => (
+                          <div key={dIdx} className="space-y-1">
+                            <span className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400">{day.date}</span>
+                            {day.events.map((evt, eIdx) => (
+                              <div key={eIdx} className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300">
+                                <span className="font-mono text-zinc-400 text-[11px] w-16">{evt.time}</span>
+                                <span>{evt.description}</span>
+                                <span className="text-zinc-400 text-[10px]">({evt.location})</span>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-2">Executive Packing Tips</span>
+                      <ul className="space-y-1.5">
+                        {trip.packingTips.map((tip, idx) => (
+                          <li key={idx} className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300">
+                            <CheckSquare className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                            <span>{tip}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* Routines & Automations Tab */}
+        {activeTab === 'routines' && (
+          <div className="p-8 max-w-5xl mx-auto space-y-6 overflow-y-auto h-full">
+            <div>
+              <h2 className="text-lg font-bold">Proactive Executive Routines & Automations</h2>
+              <p className="text-xs text-zinc-500">Autonomous recurring workflows that run morning kickoffs, evening wrap-ups, and weekly executive audits.</p>
+            </div>
+
+            {/* Routine Trigger Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-950 text-amber-600 flex items-center justify-center">
+                  <Sun className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Morning Kickoff Routine</h3>
+                  <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
+                    Synthesizes daily schedule, triages unread emails, verifies action items, and flags high-priority tasks.
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleTriggerRoutine('morning_briefing')}
+                  disabled={!!isRunningRoutine}
+                  className="w-full py-2 px-3 rounded-xl text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {isRunningRoutine === 'morning_briefing' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                  Run Morning Kickoff
+                </button>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-3">
+                <div className="w-9 h-9 rounded-xl bg-indigo-100 dark:bg-indigo-950 text-indigo-600 flex items-center justify-center">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Evening Wrap-Up Routine</h3>
+                  <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
+                    Audits completed tasks, rolls over unfinished items, and previews tomorrow&apos;s meetings and commitments.
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleTriggerRoutine('evening_wrapup')}
+                  disabled={!!isRunningRoutine}
+                  className="w-full py-2 px-3 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {isRunningRoutine === 'evening_wrapup' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                  Run Evening Wrap-Up
+                </button>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-3">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 dark:bg-purple-950 text-purple-600 flex items-center justify-center">
+                  <Repeat className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Weekly Executive Audit</h3>
+                  <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
+                    Audits VIP relationship cadences, identifies stalled partners, and aggregates corporate expenses.
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleTriggerRoutine('weekly_audit')}
+                  disabled={!!isRunningRoutine}
+                  className="w-full py-2 px-3 rounded-xl text-xs font-semibold bg-purple-600 hover:bg-purple-700 text-white transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {isRunningRoutine === 'weekly_audit' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                  Run Weekly Audit
+                </button>
+              </div>
+            </div>
+
+            {/* Routine Execution History */}
+            <div className="space-y-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">Execution History</span>
+              {routineHistory.length === 0 ? (
+                <div className="p-8 text-center rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-900/50">
+                  <p className="text-xs text-zinc-400">No automated routines executed yet.</p>
+                </div>
+              ) : (
+                routineHistory.map(rtn => (
+                  <div key={rtn.id} className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs flex items-center justify-between">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-100 dark:bg-zinc-800 uppercase">
+                          {rtn.routineType.replace('_', ' ')}
+                        </span>
+                        <span className="text-[11px] font-mono text-zinc-400">
+                          {new Date(rtn.executedAt).toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="text-xs text-zinc-700 dark:text-zinc-300 font-medium">{rtn.summary}</p>
+                    </div>
+                    <div className="flex items-center gap-1 text-emerald-600 text-xs font-semibold">
+                      <CheckCircle2 className="w-4 h-4" /> Succeeded
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}

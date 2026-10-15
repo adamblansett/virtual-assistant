@@ -139,6 +139,34 @@ export class MockGmailAdapter implements IIntegrationAdapter {
         labelIds: ['INBOX'],
         isRead: false,
         isStarred: false
+      },
+      // TRAVEL 1: Flight confirmation
+      {
+        id: 'msg_009_delta_flight',
+        threadId: 'th_009',
+        sender: 'ticketreceipt@delta.com',
+        recipient: this.userEmail,
+        subject: 'Your Flight Confirmation: Delta Air Lines DL 428',
+        snippet: 'Here is your official airline flight confirmation DL 428 BOS to JFK on seat 3A...',
+        date: recent.toISOString(),
+        timestampMs: recent.getTime(),
+        labelIds: ['INBOX', 'TRAVEL'],
+        isRead: true,
+        isStarred: false
+      },
+      // TRAVEL 2: Hotel reservation
+      {
+        id: 'msg_010_hotel_reservation',
+        threadId: 'th_010',
+        sender: 'reservations@thelanghamhotels.com',
+        recipient: this.userEmail,
+        subject: 'Hotel Reservation Confirmation: The Langham, New York',
+        snippet: 'Thank you for your hotel reservation at The Langham Fifth Avenue. Check-in 3:00 PM...',
+        date: recent.toISOString(),
+        timestampMs: recent.getTime(),
+        labelIds: ['INBOX', 'TRAVEL'],
+        isRead: true,
+        isStarred: false
       }
     ];
 
@@ -219,7 +247,7 @@ export class MockGmailAdapter implements IIntegrationAdapter {
       results = results.filter(m => m.isRead === !filter.isUnread);
     }
 
-    // Filter by raw query if provided (e.g. "older_than:5y")
+    // Filter by raw query if provided (e.g. "older_than:5y" or text keywords)
     if (filter.query) {
       const q = filter.query.toLowerCase();
       if (q.includes('older_than:5y')) {
@@ -229,6 +257,19 @@ export class MockGmailAdapter implements IIntegrationAdapter {
       }
       if (q.includes('is:unread')) {
         results = results.filter(m => !m.isRead);
+      }
+
+      const cleanQ = q
+        .replace(/older_than:\d+y/g, '')
+        .replace(/is:unread/g, '')
+        .trim();
+
+      if (cleanQ.length > 0) {
+        const terms = cleanQ.split(/\s+or\s+/i).map(t => t.trim().toLowerCase()).filter(Boolean);
+        results = results.filter(m => {
+          const text = `${m.subject} ${m.snippet} ${m.sender} ${m.recipient}`.toLowerCase();
+          return terms.some(term => text.includes(term));
+        });
       }
     }
 

@@ -22,6 +22,9 @@ import { AppStorage } from '@/lib/storage/db';
 import { ExecutiveBriefingService } from '@/lib/services/briefing';
 import { InboxTriageService } from '@/lib/services/inbox_triage';
 import { SmartSchedulingService } from '@/lib/services/scheduling';
+import { MeetingPrepService } from '@/lib/services/meeting_prep';
+import { TravelItineraryService } from '@/lib/services/travel';
+import { AssistantAutomationService } from '@/lib/services/automation';
 
 export interface ToolDefinition {
   name: string;
@@ -122,6 +125,31 @@ export const ContactSearchArgsSchema = z.object({
 });
 
 export const ExpenseSummarizeArgsSchema = z.object({});
+ 
+export const MeetingPrepareDossierArgsSchema = z.object({
+  meetingId: z.string().min(1, 'Meeting ID is required.')
+});
+
+export const MeetingProcessNotesArgsSchema = z.object({
+  meetingTitle: z.string().min(1, 'Meeting title is required.'),
+  rawNotes: z.string().min(1, 'Raw notes content is required.'),
+  attendees: z.array(z.string()).default([])
+});
+
+export const TravelListTripsArgsSchema = z.object({});
+
+export const TravelExtractReservationsArgsSchema = z.object({});
+
+export const TravelCreateItineraryArgsSchema = z.object({
+  destination: z.string().min(1, 'Destination is required.'),
+  purpose: z.string().min(1, 'Purpose is required.'),
+  startDate: z.string().optional(),
+  endDate: z.string().optional()
+});
+
+export const AssistantRunRoutineArgsSchema = z.object({
+  routineType: z.enum(['morning_briefing', 'evening_wrapup', 'weekly_audit'])
+});
 
 export interface AdaptersBundle {
   gmail?: MockGmailAdapter | GmailService;
@@ -374,6 +402,66 @@ export class ToolRegistry {
       requiredPermission: 'finance.read',
       approvalRequiredByDefault: false
     });
+
+    this.registerTool({
+      name: 'meeting_prepare_dossier',
+      integration: 'assistant',
+      description: 'Compiles an executive briefing dossier for an upcoming meeting with attendee profiles, past notes, and agenda talking points.',
+      schema: MeetingPrepareDossierArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'calendar.readonly',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'meeting_process_notes',
+      integration: 'assistant',
+      description: 'Processes raw meeting notes, automatically extracts action item tasks, and formats an executive follow-up email recap.',
+      schema: MeetingProcessNotesArgsSchema,
+      riskLevel: 'reversible_write',
+      requiredPermission: 'tasks.write',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'travel_list_trips',
+      integration: 'assistant',
+      description: 'Lists all scheduled business trips and executive travel itineraries.',
+      schema: TravelListTripsArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'assistant.read',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'travel_extract_reservations',
+      integration: 'assistant',
+      description: 'Scans email inbox for airline, hotel, and car rental confirmations to aggregate into travel itineraries.',
+      schema: TravelExtractReservationsArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'gmail.readonly',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'travel_create_itinerary',
+      integration: 'assistant',
+      description: 'Creates a complete travel itinerary with flight segments, hotel bookings, and syncs events to the executive calendar.',
+      schema: TravelCreateItineraryArgsSchema,
+      riskLevel: 'reversible_write',
+      requiredPermission: 'calendar.events',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'assistant_run_routine',
+      integration: 'assistant',
+      description: 'Executes proactive assistant recurring routines: morning_briefing, evening_wrapup, or weekly_audit.',
+      schema: AssistantRunRoutineArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'assistant.read',
+      approvalRequiredByDefault: false
+    });
   }
 
   public static registerTool(tool: ToolDefinition): void {
@@ -601,6 +689,34 @@ export class ToolRegistry {
           byCategory,
           expenses
         };
+      }
+
+      case 'meeting_prepare_dossier': {
+        const args = MeetingPrepareDossierArgsSchema.parse(rawArgs);
+        return await MeetingPrepService.prepareMeetingDossier(args.meetingId);
+      }
+
+      case 'meeting_process_notes': {
+        const args = MeetingProcessNotesArgsSchema.parse(rawArgs);
+        return await MeetingPrepService.processMeetingNotes(args.meetingTitle, args.rawNotes, args.attendees);
+      }
+
+      case 'travel_list_trips': {
+        return TravelItineraryService.listTrips();
+      }
+
+      case 'travel_extract_reservations': {
+        return await TravelItineraryService.extractReservationsFromInbox();
+      }
+
+      case 'travel_create_itinerary': {
+        const args = TravelCreateItineraryArgsSchema.parse(rawArgs);
+        return await TravelItineraryService.createTripItinerary(args);
+      }
+
+      case 'assistant_run_routine': {
+        const args = AssistantRunRoutineArgsSchema.parse(rawArgs);
+        return await AssistantAutomationService.runRoutine(args.routineType);
       }
 
       default:
