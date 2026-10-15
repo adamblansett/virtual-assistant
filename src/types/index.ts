@@ -113,3 +113,65 @@ export interface ExecutionSummary {
   verificationFailed: number;
   explanation: string;
 }
+
+// --- Executive VA Domain Models ---
+
+export const TaskPrioritySchema = z.enum(['high', 'medium', 'low']);
+export type TaskPriority = z.infer<typeof TaskPrioritySchema>;
+
+export const TaskStatusSchema = z.enum(['todo', 'in_progress', 'completed', 'cancelled']);
+export type TaskStatus = z.infer<typeof TaskStatusSchema>;
+
+export const TaskItemSchema = z.object({
+  id: z.string(),
+  title: z.string().min(1),
+  description: z.string().optional(),
+  priority: TaskPrioritySchema.default('medium'),
+  status: TaskStatusSchema.default('todo'),
+  dueDate: z.string().optional(),
+  source: z.enum(['email', 'meeting', 'user', 'note', 'document']).default('user'),
+  sourceRefId: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+export type TaskItem = z.infer<typeof TaskItemSchema>;
+
+export const ContactItemSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  email: z.string().email(),
+  company: z.string().optional(),
+  role: z.string().optional(),
+  isVIP: z.boolean().default(false),
+  notes: z.array(z.string()).default([]),
+  lastContactedAt: z.string().optional(),
+  followUpCadenceDays: z.number().default(30),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+export type ContactItem = z.infer<typeof ContactItemSchema>;
+
+export const ExpenseRecordSchema = z.object({
+  id: z.string(),
+  merchant: z.string(),
+  amount: z.number(),
+  currency: z.string().default('USD'),
+  date: z.string(),
+  category: z.enum(['software', 'travel', 'meals', 'office', 'utilities', 'financial', 'other']).default('other'),
+  source: z.string(),
+  verified: z.boolean().default(true)
+});
+export type ExpenseRecord = z.infer<typeof ExpenseRecordSchema>;
+
+export interface ExecutiveBriefing {
+  date: string;
+  greeting: string;
+  scheduleSummary: string;
+  todaysMeetings: Array<{ id: string; summary: string; time: string; location?: string }>;
+  unreadUrgentEmails: Array<{ id: string; from: string; subject: string; snippet: string }>;
+  pendingFollowUps: Array<{ to: string; subject: string; sentDaysAgo: number }>;
+  dueTasks: TaskItem[];
+  recentExpenses: { count: number; totalAmount: number; currency: string };
+  summaryText: string;
+}
+

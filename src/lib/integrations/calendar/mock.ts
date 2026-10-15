@@ -19,6 +19,9 @@ export class MockCalendarAdapter implements IIntegrationAdapter {
     this.events.clear();
 
     const today = new Date();
+    const todayMeetingStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 14, 0, 0);
+    const todayMeetingEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 15, 0, 0);
+
     const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 10, 0, 0);
     const tomorrowEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 11, 0, 0);
 
@@ -26,6 +29,17 @@ export class MockCalendarAdapter implements IIntegrationAdapter {
     const dayAfterEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 15, 0, 0);
 
     const initialEvents: CalendarEvent[] = [
+      {
+        id: 'cal_event_000',
+        summary: 'Executive Product Strategy Sync',
+        description: 'Roadmap and deliverables review.',
+        startTime: todayMeetingStart.toISOString(),
+        endTime: todayMeetingEnd.toISOString(),
+        timeZone: 'America/New_York',
+        attendees: ['alice@acmecorp.com', this.userEmail],
+        status: 'confirmed',
+        location: 'Executive Conference Room A'
+      },
       {
         id: 'cal_event_001',
         summary: 'Team Sprint Planning',

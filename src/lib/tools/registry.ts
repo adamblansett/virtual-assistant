@@ -17,8 +17,11 @@ import {
 } from '@/lib/integrations/calendar/types';
 import { SandboxedFileService } from '@/lib/integrations/files/service';
 import { PolicyEngine } from '@/lib/policy/engine';
-import { UserPreferences } from '@/types';
+import { UserPreferences, TaskItem } from '@/types';
 import { AppStorage } from '@/lib/storage/db';
+import { ExecutiveBriefingService } from '@/lib/services/briefing';
+import { InboxTriageService } from '@/lib/services/inbox_triage';
+import { SmartSchedulingService } from '@/lib/services/scheduling';
 
 export interface ToolDefinition {
   name: string;
@@ -92,6 +95,33 @@ export const FileMoveArgsSchema = z.object({
   sourcePath: z.string().min(1),
   destPath: z.string().min(1)
 });
+
+// --- Executive VA Schemas ---
+export const DailyBriefingArgsSchema = z.object({});
+
+export const InboxTriageArgsSchema = z.object({});
+
+export const FindFreeSlotsArgsSchema = z.object({
+  targetDateIso: z.string().default(() => new Date(Date.now() + 86400000).toISOString()),
+  durationMinutes: z.number().min(15).max(480).default(30)
+});
+
+export const TaskCreateArgsSchema = z.object({
+  title: z.string().min(1, 'Task title is required.'),
+  description: z.string().optional(),
+  priority: z.enum(['high', 'medium', 'low']).default('medium'),
+  dueDate: z.string().optional()
+});
+
+export const TaskListArgsSchema = z.object({
+  status: z.enum(['todo', 'in_progress', 'completed', 'cancelled', 'all']).default('all')
+});
+
+export const ContactSearchArgsSchema = z.object({
+  query: z.string().default('')
+});
+
+export const ExpenseSummarizeArgsSchema = z.object({});
 
 export interface AdaptersBundle {
   gmail?: MockGmailAdapter | GmailService;
@@ -273,6 +303,77 @@ export class ToolRegistry {
       requiredPermission: 'files.write',
       approvalRequiredByDefault: true
     });
+
+    // --- Executive Virtual Assistant Tools ---
+    this.registerTool({
+      name: 'assistant_daily_briefing',
+      integration: 'assistant',
+      description: 'Generates the executive daily morning briefing: schedule, urgent emails, follow-ups, and pending tasks.',
+      schema: DailyBriefingArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'assistant.read',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'assistant_triage_inbox',
+      integration: 'assistant',
+      description: 'Triages inbox messages into action-required, financial records, and low-priority newsletters.',
+      schema: InboxTriageArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'gmail.readonly',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'calendar_find_free_slots',
+      integration: 'google_calendar',
+      description: 'Finds available meeting time slots on a given date considering working hours and buffer times.',
+      schema: FindFreeSlotsArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'calendar.readonly',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'tasks_create',
+      integration: 'assistant',
+      description: 'Adds an action item to the executive task and to-do list with priority and optional deadline.',
+      schema: TaskCreateArgsSchema,
+      riskLevel: 'reversible_write',
+      requiredPermission: 'tasks.write',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'tasks_list',
+      integration: 'assistant',
+      description: 'Lists pending and active tasks on the executive to-do list.',
+      schema: TaskListArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'tasks.read',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'contacts_search',
+      integration: 'assistant',
+      description: 'Searches executive contacts, partners, clients, and VIP relationship history.',
+      schema: ContactSearchArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'contacts.read',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'finance_summarize_expenses',
+      integration: 'assistant',
+      description: 'Aggregates recent receipts and expenses into a categorized financial summary.',
+      schema: ExpenseSummarizeArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'finance.read',
+      approvalRequiredByDefault: false
+    });
   }
 
   public static registerTool(tool: ToolDefinition): void {
@@ -293,7 +394,7 @@ export class ToolRegistry {
   public static async executeTool(
     toolName: string,
     rawArgs: Record<string, any>,
-    adapterOrBundle: AdaptersBundle | MockGmailAdapter | GmailService,
+    adapterOrBundle?: AdaptersBundle | MockGmailAdapter | GmailService,
     preferences?: UserPreferences
   ): Promise<any> {
     const tool = this.getTool(toolName);
@@ -306,7 +407,9 @@ export class ToolRegistry {
 
     // Normalize adapters
     let bundle: AdaptersBundle;
-    if ('metadata' in adapterOrBundle) {
+    if (!adapterOrBundle) {
+      bundle = { gmail: new MockGmailAdapter() };
+    } else if ('metadata' in adapterOrBundle) {
       bundle = { gmail: adapterOrBundle as MockGmailAdapter | GmailService };
     } else {
       bundle = adapterOrBundle;
@@ -439,6 +542,65 @@ export class ToolRegistry {
       case 'files_move': {
         const args = FileMoveArgsSchema.parse(rawArgs);
         return files.moveFile(args.sourcePath, args.destPath);
+      }
+
+      // --- Executive Virtual Assistant Tools ---
+      case 'assistant_daily_briefing': {
+        return ExecutiveBriefingService.generateBriefing();
+      }
+
+      case 'assistant_triage_inbox': {
+        return InboxTriageService.triageInbox();
+      }
+
+      case 'calendar_find_free_slots': {
+        const args = FindFreeSlotsArgsSchema.parse(rawArgs);
+        return SmartSchedulingService.findFreeSlots(args.targetDateIso, args.durationMinutes);
+      }
+
+      case 'tasks_create': {
+        const args = TaskCreateArgsSchema.parse(rawArgs);
+        const task: TaskItem = {
+          id: `tsk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          title: args.title,
+          description: args.description,
+          priority: args.priority,
+          status: 'todo',
+          dueDate: args.dueDate,
+          source: 'user',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        AppStorage.saveTask(task);
+        return { success: true, task };
+      }
+
+      case 'tasks_list': {
+        const args = TaskListArgsSchema.parse(rawArgs);
+        const tasks = AppStorage.listTasks();
+        if (args.status === 'all') return tasks;
+        return tasks.filter(t => t.status === args.status);
+      }
+
+      case 'contacts_search': {
+        const args = ContactSearchArgsSchema.parse(rawArgs);
+        return AppStorage.searchContacts(args.query);
+      }
+
+      case 'finance_summarize_expenses': {
+        const expenses = AppStorage.listExpenses();
+        const totalAmount = expenses.reduce((acc, curr) => acc + curr.amount, 0);
+        const byCategory = expenses.reduce((acc: Record<string, number>, curr) => {
+          acc[curr.category] = (acc[curr.category] || 0) + curr.amount;
+          return acc;
+        }, {});
+        return {
+          totalAmount,
+          currency: 'USD',
+          count: expenses.length,
+          byCategory,
+          expenses
+        };
       }
 
       default:

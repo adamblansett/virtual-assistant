@@ -2,64 +2,14 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)](https://nextjs.org/)
-[![Tests](https://img.shields.io/badge/Tests-47%2F47%20Passing-emerald.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-64%2F64%20Passing-emerald.svg)](tests/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 An **evidence-driven, privacy-first, extensible, self-hostable personal and professional AI Virtual Assistant**.
 
 Unlike conversational chatbots that merely instruct humans on how to perform manual tasks, this virtual assistant understands natural-language requests, synthesizes structured inspectable execution plans, verifies permissions, and executes authorized tasks through real integrations with post-execution state verification.
 
----
-
-## Key Principles & Architecture
-
-```
-                  ┌──────────────────────┐
-                  │ User Request (Prompt)│
-                  └──────────┬───────────┘
-                             │
-                             ▼
-                  ┌──────────────────────┐
-                  │ 1. CONVERSATION & AI │
-                  │ Intent Interpretation │
-                  └──────────┬───────────┘
-                             │
-                             ▼
-                  ┌──────────────────────┐
-                  │ 2. STRUCTURED PLAN   │
-                  │ Inspectable Actions  │
-                  └──────────┬───────────┘
-                             │
-                             ▼
-                  ┌──────────────────────┐
-                  │ 3. POLICY ENGINE     │
-                  │ Risk & Approval Gates│
-                  └──────────┬───────────┘
-                             │ (Human Authorization)
-                             ▼
-                  ┌──────────────────────┐
-                  │ 4. EXECUTION ENGINE  │
-                  │ Idempotency & Tools  │
-                  └──────────┬───────────┘
-                             │
-                             ▼
-                  ┌──────────────────────┐
-                  │ 5. STATE VERIFIER    │
-                  │ Authoritative Check  │
-                  └──────────┬───────────┘
-                             │
-                             ▼
-                  ┌──────────────────────┐
-                  │ 6. REDACTED AUDIT    │
-                  │ Immutable Log & PnL  │
-                  └──────────────────────┘
-```
-
-The system strictly enforces the four-phase separation:
-1. **Conversation**: Understanding user intent without granting the model authority to run arbitrary actions.
-2. **Planning**: Generating a transparent, inspectable action plan with explicit risk classifications (`read`, `reversible_write`, `consequential`, `high_risk`).
-3. **Execution**: Server-side policy checks and human confirmation gates validate permissions and arguments before invoking integration adapters.
-4. **Verification**: Authoritative state verification directly against the provider (e.g. checking that messages actually possess the `TRASH` label and lack `INBOX`, files exist on disk, or calendar events are confirmed).
+Designed to fulfill the complete scope of responsibilities expected of a paid executive/personal assistant: proactive morning briefings, intelligent inbox triage, smart calendar coordination with buffer times, relationship follow-up cadence monitoring, task management, and expense tracking.
 
 ---
 
@@ -67,6 +17,12 @@ The system strictly enforces the four-phase separation:
 
 | Capability | Status | Implementation Details |
 | :--- | :--- | :--- |
+| **Executive Daily Briefing** | :white_check_mark: Verified | Aggregates daily calendar schedule, urgent unread emails, stalled VIP follow-ups, due tasks, and expenses |
+| **Inbox Triage & Action Items** | :white_check_mark: Verified | Classifies emails into `needs_action`, `finance_and_records`, and `low_priority` with suggested actions |
+| **Smart Scheduling & Free Slots** | :white_check_mark: Verified | Computes open meeting slots during business hours (9 AM - 5 PM) with automated 15-minute buffers |
+| **Executive Tasks & To-Dos** | :white_check_mark: Verified | Full action item management with priority ratings, status toggling, due dates, and provenance tracking |
+| **VIP Relationship CRM** | :white_check_mark: Verified | Tracks VIP relationships, communication history, meeting notes, and flags overdue follow-up cadences |
+| **Financial & Expense Records** | :white_check_mark: Verified | Categorizes spend (software, travel, meals, office), tracks totals, and links receipts |
 | **Conversational Planner** | :white_check_mark: Verified | Converts natural language into typed `TaskPlan` models |
 | **Central Policy Engine** | :white_check_mark: Verified | Server-side risk ratings (`read`, `reversible_write`, `consequential`, `high_risk`) |
 | **Approval Gates** | :white_check_mark: Verified | Explicit user confirmation required for bulk modifications & consequential send actions |
@@ -81,8 +37,36 @@ The system strictly enforces the four-phase separation:
 | **Authoritative State Verification** | :white_check_mark: Verified | Re-queries provider state to verify mutations |
 | **Idempotency Protection** | :white_check_mark: Verified | Prevents duplicate execution upon retries or worker restarts |
 | **Secret Redaction** | :white_check_mark: Verified | Redacts tokens, passwords, and authorization headers from audit logs |
-| **Interactive UI** | :white_check_mark: Verified | Next.js 16 + React 19 + Tailwind CSS + Lucide dashboard with live tabs for Chat, Jobs, Calendar, Files, History, BYOK, Audit, and Policies |
+| **Interactive Dashboard UI** | :white_check_mark: Verified | Next.js 16 + React 19 + Tailwind CSS + Lucide dashboard with dedicated tabs for Briefing, Tasks, Contacts, Expenses, Chat, Jobs, Calendar, Files, History, BYOK, Audit, and Policies |
 | **Docker Self-Hosting** | :white_check_mark: Ready | Multi-stage Dockerfile and docker-compose.yml |
+
+---
+
+## Executive Virtual Assistant Suite (Paid VA Replacement)
+
+The platform is designed to replace the primary everyday services of a human executive assistant:
+
+1. **Daily Morning Briefing**:
+   - One-click morning digest synthesizing today's schedule, urgent inbox items requiring human decisions, overdue relationship follow-ups, and pending tasks.
+   - Proactively alerts the executive to clear calendar windows for deep focus.
+
+2. **Inbox Triage & Action Item Extraction**:
+   - Ingests recent emails and segregates them into actionable priority buckets:
+     - `needs_action`: Client inquiries, urgent requests, and contract approvals requiring reply.
+     - `finance_and_records`: Invoices, receipts, tax notices, and bank statements preserved for records.
+     - `low_priority`: Newsletters, promotional offers, and notifications safe for archiving.
+
+3. **Smart Scheduling & Coordination**:
+   - Automatically inspects the calendar to find mutually agreeable open windows during working hours.
+   - Enforces a 15-minute buffer between meetings to prevent back-to-back fatigue.
+
+4. **VIP Relationship Management & Cadence Tracking**:
+   - Maintains an executive CRM of partners, clients, and advisors.
+   - Alerts the executive when a VIP contact has not been contacted within their defined follow-up cadence (e.g. 7 days, 14 days, 30 days) with quick one-click follow-up draft generation.
+
+5. **Corporate Expense Tracking**:
+   - Categorizes spending by department/category (Software, Travel, Meals, Office Supplies).
+   - Authoritative verification flags whether receipts and records have been reconciled.
 
 ---
 
@@ -135,7 +119,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Testing & Quality Assurance
 
-The test suite runs **47 automated tests across 11 test suites** covering unit, integration, security, e2e API routes, and Section 9 AI quality evaluations:
+The test suite runs **64 automated tests across 12 test suites** covering unit, integration, security, e2e API routes, executive virtual assistant workflows, and Section 9 AI quality evaluations:
 
 ```bash
 # Run full Vitest test suite

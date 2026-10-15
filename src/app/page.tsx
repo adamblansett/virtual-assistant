@@ -6,12 +6,12 @@ import {
   AlertTriangle, Clock, RefreshCw, Mail, Settings, 
   FileText, Play, XCircle, Eye, Lock,
   ChevronRight, Sparkles, Filter, Calendar as CalendarIcon,
-  Folder, ListTodo
+  Folder, ListTodo, CheckSquare, Users, DollarSign, Sun, Star, Plus, Search
 } from 'lucide-react';
-import { TaskPlan, AuditEvent, UserPreferences } from '@/types';
+import { TaskPlan, AuditEvent, UserPreferences, TaskItem, ContactItem, ExpenseRecord, ExecutiveBriefing } from '@/types';
 
 export default function AssistantApp() {
-  const [activeTab, setActiveTab] = useState<'chat' | 'history' | 'jobs' | 'calendar' | 'files' | 'integrations' | 'audit' | 'preferences'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'briefing' | 'tasks' | 'contacts' | 'expenses' | 'jobs' | 'calendar' | 'files' | 'history' | 'integrations' | 'audit' | 'preferences'>('chat');
   const [inputMessage, setInputMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -28,6 +28,22 @@ export default function AssistantApp() {
     useMockGmail: true,
     aiProvider: 'mock'
   });
+
+  // Executive VA states
+  const [briefing, setBriefing] = useState<ExecutiveBriefing | null>(null);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [contacts, setContacts] = useState<ContactItem[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
+  const [expenseSummary, setExpenseSummary] = useState<{ totalAmount: number; currency: string; byCategory: Record<string, number>; count: number } | null>(null);
+
+  // Forms and filter states
+  const [taskFilter, setTaskFilter] = useState<'all' | 'todo' | 'completed'>('all');
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskPriority, setNewTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [contactSearchQuery, setContactSearchQuery] = useState('');
+  const [newExpenseMerchant, setNewExpenseMerchant] = useState('');
+  const [newExpenseAmount, setNewExpenseAmount] = useState('');
+  const [newExpenseCategory, setNewExpenseCategory] = useState<'software' | 'travel' | 'meals' | 'office' | 'utilities' | 'financial' | 'other'>('software');
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -94,8 +110,116 @@ export default function AssistantApp() {
         const jData = await jobsRes.json();
         setBackgroundJobs(jData.jobs || []);
       }
+
+      // 8. Fetch executive briefing
+      const briefRes = await fetch('/api/briefing');
+      if (briefRes.ok) {
+        const bData = await briefRes.json();
+        setBriefing(bData.briefing);
+      }
+
+      // 9. Fetch tasks
+      const tasksRes = await fetch('/api/tasks');
+      if (tasksRes.ok) {
+        const tData = await tasksRes.json();
+        setTasks(tData.tasks || []);
+      }
+
+      // 10. Fetch contacts
+      const contactsRes = await fetch('/api/contacts');
+      if (contactsRes.ok) {
+        const cData = await contactsRes.json();
+        setContacts(cData.contacts || []);
+      }
+
+      // 11. Fetch expenses
+      const expRes = await fetch('/api/expenses');
+      if (expRes.ok) {
+        const eData = await expRes.json();
+        setExpenses(eData.expenses || []);
+        setExpenseSummary(eData.summary || null);
+      }
     } catch (err) {
       console.error('Failed to load initial data:', err);
+    }
+  };
+
+  const handleToggleTask = async (id: string) => {
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggle', id })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTasks(prev => prev.map(t => t.id === id ? data.task : t));
+      }
+    } catch (err) {
+      console.error('Failed to toggle task:', err);
+    }
+  };
+
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTaskTitle.trim()) return;
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newTaskTitle.trim(),
+          priority: newTaskPriority
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTasks(prev => [data.task, ...prev]);
+        setNewTaskTitle('');
+      }
+    } catch (err) {
+      console.error('Failed to create task:', err);
+    }
+  };
+
+  const handleCreateExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newExpenseMerchant.trim() || !newExpenseAmount) return;
+    try {
+      const res = await fetch('/api/expenses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          merchant: newExpenseMerchant.trim(),
+          amount: parseFloat(newExpenseAmount),
+          category: newExpenseCategory
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setExpenses(prev => [data.expense, ...prev]);
+        setNewExpenseMerchant('');
+        setNewExpenseAmount('');
+        const expRes = await fetch('/api/expenses');
+        if (expRes.ok) {
+          const eData = await expRes.json();
+          setExpenseSummary(eData.summary || null);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to create expense:', err);
+    }
+  };
+
+  const handleRefreshBriefing = async () => {
+    try {
+      const res = await fetch('/api/briefing');
+      if (res.ok) {
+        const data = await res.json();
+        setBriefing(data.briefing);
+      }
+    } catch (err) {
+      console.error('Failed to refresh briefing:', err);
     }
   };
 
@@ -284,6 +408,60 @@ export default function AssistantApp() {
         </button>
 
         <button
+          onClick={() => setActiveTab('briefing')}
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
+            activeTab === 'briefing'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+          }`}
+        >
+          <Sun className="w-4 h-4 text-amber-500" /> Morning Briefing
+          {briefing?.todaysMeetings && briefing.todaysMeetings.length > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 text-[10px] font-bold">
+              {briefing.todaysMeetings.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('tasks')}
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
+            activeTab === 'tasks'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+          }`}
+        >
+          <CheckSquare className="w-4 h-4 text-emerald-500" /> Tasks & To-Dos
+          {tasks.filter(t => t.status === 'todo').length > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] font-bold">
+              {tasks.filter(t => t.status === 'todo').length}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('contacts')}
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
+            activeTab === 'contacts'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+          }`}
+        >
+          <Users className="w-4 h-4 text-purple-500" /> VIP Contacts ({contacts.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('expenses')}
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
+            activeTab === 'expenses'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+          }`}
+        >
+          <DollarSign className="w-4 h-4 text-blue-500" /> Expenses (${expenseSummary?.totalAmount ? Math.round(expenseSummary.totalAmount) : 0})
+        </button>
+
+        <button
           onClick={() => setActiveTab('jobs')}
           className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
             activeTab === 'jobs'
@@ -370,32 +548,46 @@ export default function AssistantApp() {
               {/* Quick Actions Bar */}
               <div className="p-3 border-b border-zinc-100 dark:border-zinc-800/60 bg-zinc-50/50 dark:bg-zinc-900/50 flex flex-wrap gap-2">
                 <button
-                  onClick={() => handleSendMessage('Find emails older than five years that I no longer need and clean them up.')}
+                  onClick={() => handleSendMessage('Give me my morning briefing')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
+                >
+                  <Sun className="w-3.5 h-3.5 text-amber-500" />
+                  Morning Briefing
+                </button>
+                <button
+                  onClick={() => handleSendMessage('Triage my inbox for action items, follow-ups, and records')}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
                 >
                   <Mail className="w-3.5 h-3.5 text-indigo-600" />
-                  Clean emails older than 5 years
+                  Triage Inbox
                 </button>
                 <button
-                  onClick={() => handleSendMessage('Search emails from irs.gov or chase.com')}
+                  onClick={() => handleSendMessage('Find 45min open tomorrow for a meeting')}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
                 >
-                  <Lock className="w-3.5 h-3.5 text-emerald-600" />
-                  Check protected receipts/tax
+                  <Clock className="w-3.5 h-3.5 text-blue-600" />
+                  Find Meeting Slots
                 </button>
                 <button
-                  onClick={() => handleSendMessage('Check my upcoming calendar events for this week')}
+                  onClick={() => handleSendMessage('Summarize recent expenses and receipts')}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
                 >
-                  <CalendarIcon className="w-3.5 h-3.5 text-blue-600" />
-                  Check calendar schedule
+                  <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                  Summarize Expenses
+                </button>
+                <button
+                  onClick={() => handleSendMessage('Find emails older than five years that I no longer need and clean them up.')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
+                >
+                  <Lock className="w-3.5 h-3.5 text-rose-500" />
+                  Clean Old Emails
                 </button>
                 <button
                   onClick={() => handleSendMessage('List files in safe workspace')}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
                 >
                   <Folder className="w-3.5 h-3.5 text-amber-600" />
-                  List workspace files
+                  List Files
                 </button>
               </div>
 
@@ -613,6 +805,603 @@ export default function AssistantApp() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Executive Morning Briefing Tab */}
+        {activeTab === 'briefing' && (
+          <div className="p-8 max-w-5xl mx-auto space-y-6 overflow-y-auto h-full">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 flex items-center justify-center">
+                  <Sun className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold">Executive Daily Briefing</h2>
+                  <p className="text-xs text-zinc-500">{briefing?.date || new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleRefreshBriefing}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-zinc-500" /> Refresh Briefing
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveTab('chat');
+                    handleSendMessage('Triage my inbox for action items, follow-ups, and records');
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow-xs hover:bg-indigo-700 transition"
+                >
+                  <Mail className="w-3.5 h-3.5" /> Triage Inbox
+                </button>
+              </div>
+            </div>
+
+            {/* Hero Summary Card */}
+            {briefing?.summaryText && (
+              <div className="p-5 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50 shadow-2xs">
+                <div className="flex items-start gap-3">
+                  <Sparkles className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-400">Assistant Daily Overview</h3>
+                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200 mt-1 leading-relaxed">{briefing.summaryText}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* KPI Metrics Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs">
+                <span className="text-[11px] font-medium text-zinc-500">Today&apos;s Schedule</span>
+                <div className="text-xl font-bold text-zinc-900 dark:text-zinc-100 mt-1 flex items-baseline gap-1">
+                  {briefing?.todaysMeetings?.length || 0}
+                  <span className="text-xs font-normal text-zinc-400">events</span>
+                </div>
+              </div>
+              <div className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs">
+                <span className="text-[11px] font-medium text-zinc-500">Urgent Inquiries</span>
+                <div className="text-xl font-bold text-amber-600 mt-1 flex items-baseline gap-1">
+                  {briefing?.unreadUrgentEmails?.length || 0}
+                  <span className="text-xs font-normal text-zinc-400">emails</span>
+                </div>
+              </div>
+              <div className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs">
+                <span className="text-[11px] font-medium text-zinc-500">Tasks Due</span>
+                <div className="text-xl font-bold text-indigo-600 mt-1 flex items-baseline gap-1">
+                  {briefing?.dueTasks?.length || 0}
+                  <span className="text-xs font-normal text-zinc-400">items</span>
+                </div>
+              </div>
+              <div className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs">
+                <span className="text-[11px] font-medium text-zinc-500">Stalled Follow-Ups</span>
+                <div className="text-xl font-bold text-purple-600 mt-1 flex items-baseline gap-1">
+                  {briefing?.pendingFollowUps?.length || 0}
+                  <span className="text-xs font-normal text-zinc-400">contacts</span>
+                </div>
+              </div>
+              <div className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs">
+                <span className="text-[11px] font-medium text-zinc-500">Recent Spend</span>
+                <div className="text-xl font-bold text-emerald-600 mt-1 flex items-baseline gap-1">
+                  ${briefing?.recentExpenses?.totalAmount ? Math.round(briefing.recentExpenses.totalAmount) : 0}
+                  <span className="text-xs font-normal text-zinc-400">USD</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Split Content: Schedule & Follow-ups on Left, Urgent Inbox & Tasks on Right */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Left Column */}
+              <div className="space-y-6">
+                {/* Today's Schedule Card */}
+                <div className="p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold flex items-center gap-2">
+                      <CalendarIcon className="w-4 h-4 text-blue-500" />
+                      Today&apos;s Meetings &amp; Commitments
+                    </h3>
+                    <button
+                      onClick={() => setActiveTab('calendar')}
+                      className="text-xs text-indigo-600 hover:underline flex items-center gap-1"
+                    >
+                      View Calendar <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                  {(!briefing?.todaysMeetings || briefing.todaysMeetings.length === 0) ? (
+                    <div className="p-6 text-center rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-dashed border-zinc-200 dark:border-zinc-700">
+                      <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto mb-1" />
+                      <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">Calendar clear today</p>
+                      <p className="text-[11px] text-zinc-400">Ideal for deep focus and high-priority strategic projects.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {briefing.todaysMeetings.map(m => (
+                        <div key={m.id} className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 flex items-center justify-between">
+                          <div>
+                            <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200">{m.summary}</span>
+                            <div className="text-[11px] text-zinc-500 flex items-center gap-2 mt-0.5">
+                              <span>⏰ {m.time}</span>
+                              {m.location && <span>📍 {m.location}</span>}
+                            </div>
+                          </div>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
+                            Confirmed
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Stalled Follow-ups Card */}
+                <div className="p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold flex items-center gap-2">
+                      <Users className="w-4 h-4 text-purple-500" />
+                      Stalled Relationship Follow-ups
+                    </h3>
+                    <button
+                      onClick={() => setActiveTab('contacts')}
+                      className="text-xs text-indigo-600 hover:underline flex items-center gap-1"
+                    >
+                      All Contacts <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                  {(!briefing?.pendingFollowUps || briefing.pendingFollowUps.length === 0) ? (
+                    <div className="p-6 text-center rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-dashed border-zinc-200 dark:border-zinc-700">
+                      <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto mb-1" />
+                      <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">All VIP cadences up to date</p>
+                      <p className="text-[11px] text-zinc-400">No client or partner relationships require urgent outreach today.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {briefing.pendingFollowUps.map((f, idx) => (
+                        <div key={idx} className="p-3 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{f.to}</span>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                              {f.sentDaysAgo}d overdue
+                            </span>
+                          </div>
+                          <p className="text-xs text-zinc-600 dark:text-zinc-400">{f.subject}</p>
+                          <button
+                            onClick={() => {
+                              setActiveTab('chat');
+                              handleSendMessage(`Draft a polite follow-up email to ${f.to}`);
+                            }}
+                            className="text-[11px] text-indigo-600 font-semibold hover:underline"
+                          >
+                            Draft follow-up email &rarr;
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right Column */}
+              <div className="space-y-6">
+                {/* Urgent Emails Card */}
+                <div className="p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-red-500" />
+                      Action-Required Emails
+                    </h3>
+                    <button
+                      onClick={() => {
+                        setActiveTab('chat');
+                        handleSendMessage('Triage my inbox for action items');
+                      }}
+                      className="text-xs text-indigo-600 hover:underline flex items-center gap-1"
+                    >
+                      Triage All <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                  {(!briefing?.unreadUrgentEmails || briefing.unreadUrgentEmails.length === 0) ? (
+                    <div className="p-6 text-center rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-dashed border-zinc-200 dark:border-zinc-700">
+                      <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto mb-1" />
+                      <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">Inbox zero for urgent items</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {briefing.unreadUrgentEmails.map(em => (
+                        <div key={em.id} className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200 truncate">{em.from}</span>
+                            <button
+                              onClick={() => {
+                                setActiveTab('chat');
+                                handleSendMessage(`Draft a reply to ${em.from} regarding "${em.subject}"`);
+                              }}
+                              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 hover:bg-indigo-100"
+                            >
+                              Draft Reply
+                            </button>
+                          </div>
+                          <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">{em.subject}</p>
+                          <p className="text-[11px] text-zinc-500 truncate">{em.snippet}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Priority Action Items / Tasks Card */}
+                <div className="p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold flex items-center gap-2">
+                      <CheckSquare className="w-4 h-4 text-emerald-500" />
+                      Priority Action Items
+                    </h3>
+                    <button
+                      onClick={() => setActiveTab('tasks')}
+                      className="text-xs text-indigo-600 hover:underline flex items-center gap-1"
+                    >
+                      Task Board <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                  {(!briefing?.dueTasks || briefing.dueTasks.length === 0) ? (
+                    <div className="p-6 text-center rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-dashed border-zinc-200 dark:border-zinc-700">
+                      <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto mb-1" />
+                      <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">All tasks completed</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {briefing.dueTasks.map(t => (
+                        <div key={t.id} className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={t.status === 'completed'}
+                              onChange={() => handleToggleTask(t.id)}
+                              className="w-4 h-4 rounded text-indigo-600 cursor-pointer"
+                            />
+                            <div className="min-w-0">
+                              <span className={`text-xs font-medium block truncate ${t.status === 'completed' ? 'line-through text-zinc-400' : 'text-zinc-800 dark:text-zinc-200'}`}>
+                                {t.title}
+                              </span>
+                              {t.dueDate && <span className="text-[10px] text-zinc-400">Due: {t.dueDate}</span>}
+                            </div>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase shrink-0 ${
+                            t.priority === 'high' ? 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300' :
+                            t.priority === 'medium' ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300' :
+                            'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                          }`}>
+                            {t.priority}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tasks & To-Dos Management Tab */}
+        {activeTab === 'tasks' && (
+          <div className="p-8 max-w-4xl mx-auto space-y-6 overflow-y-auto h-full">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold">Executive Tasks & Action Items</h2>
+                <p className="text-xs text-zinc-500">Track and prioritize responsibilities delegated to or managed by your assistant.</p>
+              </div>
+              <div className="flex items-center gap-1.5 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-xs">
+                {(['all', 'todo', 'completed'] as const).map(f => (
+                  <button
+                    key={f}
+                    onClick={() => setTaskFilter(f)}
+                    className={`px-3 py-1 rounded-md capitalize font-semibold transition ${
+                      taskFilter === f
+                        ? 'bg-white dark:bg-zinc-700 shadow-2xs text-zinc-900 dark:text-zinc-100'
+                        : 'text-zinc-500 hover:text-zinc-800'
+                    }`}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Quick Add Task Form */}
+            <form onSubmit={handleCreateTask} className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs flex gap-3 items-center">
+              <input
+                type="text"
+                placeholder="Add a new action item or executive task..."
+                value={newTaskTitle}
+                onChange={e => setNewTaskTitle(e.target.value)}
+                className="flex-1 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3.5 py-2 text-xs focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+              />
+              <select
+                value={newTaskPriority}
+                onChange={e => setNewTaskPriority(e.target.value as any)}
+                className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs font-medium"
+              >
+                <option value="high">High Priority</option>
+                <option value="medium">Medium Priority</option>
+                <option value="low">Low Priority</option>
+              </select>
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 text-white shadow-xs hover:bg-indigo-700 transition"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add Task
+              </button>
+            </form>
+
+            {/* Task Checklist */}
+            <div className="space-y-2.5">
+              {tasks.filter(t => taskFilter === 'all' ? true : t.status === taskFilter).length === 0 ? (
+                <div className="p-12 text-center rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-900/50">
+                  <CheckSquare className="w-8 h-8 text-zinc-400 mx-auto mb-2" />
+                  <p className="text-xs text-zinc-500 font-medium">No tasks found in this view.</p>
+                </div>
+              ) : (
+                tasks
+                  .filter(t => taskFilter === 'all' ? true : t.status === taskFilter)
+                  .map(task => (
+                    <div
+                      key={task.id}
+                      className={`p-4 rounded-xl border transition shadow-2xs flex items-center justify-between gap-4 ${
+                        task.status === 'completed'
+                          ? 'bg-zinc-50 dark:bg-zinc-900/40 border-zinc-200 dark:border-zinc-800 opacity-60'
+                          : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={task.status === 'completed'}
+                          onChange={() => handleToggleTask(task.id)}
+                          className="w-4 h-4 rounded text-indigo-600 cursor-pointer"
+                        />
+                        <div className="min-w-0">
+                          <span className={`text-xs font-semibold block ${task.status === 'completed' ? 'line-through text-zinc-400' : 'text-zinc-900 dark:text-zinc-100'}`}>
+                            {task.title}
+                          </span>
+                          {task.description && (
+                            <p className="text-[11px] text-zinc-500 mt-0.5">{task.description}</p>
+                          )}
+                          <div className="flex items-center gap-2 mt-1 text-[10px] text-zinc-400">
+                            <span>Source: <strong className="capitalize">{task.source}</strong></span>
+                            {task.dueDate && <span>• Due: {task.dueDate}</span>}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                          task.priority === 'high' ? 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300' :
+                          task.priority === 'medium' ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300' :
+                          'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                        }`}>
+                          {task.priority}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* VIP Contacts & Relationship CRM Tab */}
+        {activeTab === 'contacts' && (
+          <div className="p-8 max-w-5xl mx-auto space-y-6 overflow-y-auto h-full">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold">VIP Contacts & Relationship Follow-Up CRM</h2>
+                <p className="text-xs text-zinc-500">Track executive relationships, communication cadence, and preferences.</p>
+              </div>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-3 text-zinc-400" />
+                <input
+                  type="text"
+                  placeholder="Search contacts by name, company, email..."
+                  value={contactSearchQuery}
+                  onChange={e => setContactSearchQuery(e.target.value)}
+                  className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl pl-9 pr-4 py-1.5 text-xs focus:outline-hidden focus:ring-2 focus:ring-indigo-500 w-64 shadow-2xs"
+                />
+              </div>
+            </div>
+
+            {/* Contacts Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {contacts
+                .filter(c => {
+                  if (!contactSearchQuery) return true;
+                  const q = contactSearchQuery.toLowerCase();
+                  return c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q) || (c.company && c.company.toLowerCase().includes(q));
+                })
+                .map(c => {
+                  const daysAgo = c.lastContactedAt 
+                    ? Math.floor((Date.now() - new Date(c.lastContactedAt).getTime()) / (1000 * 60 * 60 * 24))
+                    : 0;
+                  const isOverdue = daysAgo >= c.followUpCadenceDays;
+
+                  return (
+                    <div key={c.id} className="p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs flex flex-col justify-between space-y-4">
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{c.name}</h3>
+                              {c.isVIP && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 text-[10px] font-bold">
+                                  <Star className="w-3 h-3 fill-amber-500 text-amber-500" /> VIP
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-zinc-500">{c.role} {c.company ? `• ${c.company}` : ''}</p>
+                          </div>
+                        </div>
+
+                        <div className="text-xs font-mono text-zinc-600 dark:text-zinc-400">
+                          {c.email}
+                        </div>
+
+                        {/* Cadence Status */}
+                        <div className="pt-1">
+                          <div className={`p-2 rounded-lg text-[11px] ${
+                            isOverdue 
+                              ? 'bg-rose-50 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                              : 'bg-zinc-50 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                          }`}>
+                            <div className="font-semibold">
+                              {isOverdue ? `⚠️ Cadence Overdue: Last contacted ${daysAgo}d ago` : `Cadence: every ${c.followUpCadenceDays} days (contacted ${daysAgo}d ago)`}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Notes */}
+                        {c.notes && c.notes.length > 0 && (
+                          <div className="space-y-1 pt-1">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Key Context Notes:</span>
+                            <ul className="text-xs text-zinc-600 dark:text-zinc-400 space-y-1 list-disc list-inside">
+                              {c.notes.map((note, idx) => (
+                                <li key={idx} className="text-[11px] leading-relaxed">{note}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setActiveTab('chat');
+                          handleSendMessage(`Draft a follow-up email to ${c.name} (${c.email})`);
+                        }}
+                        className="w-full py-1.5 px-3 rounded-xl text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 transition"
+                      >
+                        Draft Follow-Up Email
+                      </button>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        )}
+
+        {/* Expenses & Financial Records Tab */}
+        {activeTab === 'expenses' && (
+          <div className="p-8 max-w-5xl mx-auto space-y-6 overflow-y-auto h-full">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold">Expense Tracking & Financial Records</h2>
+                <p className="text-xs text-zinc-500">Corporate spend aggregation, receipt extraction, and categorized expense records.</p>
+              </div>
+              <div className="text-right">
+                <span className="text-xs text-zinc-400 block">Total Spend</span>
+                <span className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
+                  ${expenseSummary?.totalAmount ? expenseSummary.totalAmount.toFixed(2) : '0.00'} USD
+                </span>
+              </div>
+            </div>
+
+            {/* Category Breakdown Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {['software', 'travel', 'meals', 'office'].map(cat => (
+                <div key={cat} className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs">
+                  <span className="text-[11px] font-medium text-zinc-500 capitalize">{cat}</span>
+                  <div className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mt-1">
+                    ${expenseSummary?.byCategory?.[cat] ? expenseSummary.byCategory[cat].toFixed(2) : '0.00'}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Quick Add Expense Form */}
+            <form onSubmit={handleCreateExpense} className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs flex flex-wrap gap-3 items-center">
+              <input
+                type="text"
+                placeholder="Merchant (e.g. AWS, Uber, Delta)..."
+                value={newExpenseMerchant}
+                onChange={e => setNewExpenseMerchant(e.target.value)}
+                className="flex-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3.5 py-2 text-xs focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+              />
+              <input
+                type="number"
+                step="0.01"
+                placeholder="Amount (USD)..."
+                value={newExpenseAmount}
+                onChange={e => setNewExpenseAmount(e.target.value)}
+                className="w-32 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3.5 py-2 text-xs focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+              />
+              <select
+                value={newExpenseCategory}
+                onChange={e => setNewExpenseCategory(e.target.value as any)}
+                className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs font-medium"
+              >
+                <option value="software">Software</option>
+                <option value="travel">Travel</option>
+                <option value="meals">Meals</option>
+                <option value="office">Office</option>
+                <option value="utilities">Utilities</option>
+                <option value="financial">Financial</option>
+                <option value="other">Other</option>
+              </select>
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white shadow-xs hover:bg-emerald-700 transition"
+              >
+                <Plus className="w-3.5 h-3.5" /> Log Expense
+              </button>
+            </form>
+
+            {/* Expenses Table */}
+            <div className="overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-zinc-50 dark:bg-zinc-800/50 border-b border-zinc-200 dark:border-zinc-800 font-semibold text-zinc-600 dark:text-zinc-300">
+                  <tr>
+                    <th className="p-3">Date</th>
+                    <th className="p-3">Merchant</th>
+                    <th className="p-3">Category</th>
+                    <th className="p-3">Source / Note</th>
+                    <th className="p-3">Amount</th>
+                    <th className="p-3">Verification</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {expenses.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-6 text-center text-zinc-400">No expense records found.</td>
+                    </tr>
+                  ) : (
+                    expenses.map(exp => (
+                      <tr key={exp.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40">
+                        <td className="p-3 font-mono text-[11px] text-zinc-400">{exp.date}</td>
+                        <td className="p-3 font-bold text-zinc-800 dark:text-zinc-200">{exp.merchant}</td>
+                        <td className="p-3">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">
+                            {exp.category}
+                          </span>
+                        </td>
+                        <td className="p-3 text-zinc-600 dark:text-zinc-400 text-xs">{exp.source}</td>
+                        <td className="p-3 font-mono font-bold text-zinc-900 dark:text-zinc-100">
+                          ${exp.amount.toFixed(2)} {exp.currency}
+                        </td>
+                        <td className="p-3">
+                          {exp.verified ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Verified
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-amber-600">Pending</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         )}

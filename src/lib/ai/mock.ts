@@ -46,8 +46,37 @@ export class MockAIProvider implements IAIProviderAdapter {
           body: 'Here is the update you asked for.'
         }
       });
-    } else if (lower.includes('calendar') || lower.includes('meetings') || lower.includes('schedule')) {
-      if (lower.includes('create') || lower.includes('new event') || lower.includes('schedule a meeting')) {
+    } else if (
+      lower.includes('calendar') || 
+      lower.includes('meeting') || 
+      lower.includes('schedule') || 
+      lower.includes('free slot') || 
+      lower.includes('open time') || 
+      lower.includes('availability')
+    ) {
+      if (
+        lower.includes('free slot') || 
+        lower.includes('open time') || 
+        lower.includes('find time') || 
+        lower.includes('open') || 
+        lower.includes('availability') ||
+        (lower.includes('find') && (lower.includes('min') || lower.includes('slot')))
+      ) {
+        text = "Searching for open meeting slots on your calendar...";
+        let durationMinutes = 30;
+        const durMatch = lower.match(/(\d+)\s*(?:min|minute)/);
+        if (durMatch) {
+          durationMinutes = parseInt(durMatch[1], 10);
+        }
+        toolCalls.push({
+          id: `call_${Date.now()}_free_slots`,
+          name: 'calendar_find_free_slots',
+          arguments: {
+            targetDateIso: new Date(Date.now() + 86400000).toISOString(),
+            durationMinutes
+          }
+        });
+      } else if (lower.includes('create') || lower.includes('new event') || lower.includes('schedule a meeting')) {
         text = "I have prepared a plan to schedule this calendar event.";
         toolCalls.push({
           id: `call_${Date.now()}_cal_create`,
@@ -78,6 +107,57 @@ export class MockAIProvider implements IAIProviderAdapter {
           }
         });
       }
+    } else if (lower.includes('briefing') || lower.includes('what\'s on my plate') || lower.includes('daily agenda') || lower.includes('morning brief')) {
+      text = "Preparing your executive morning briefing...";
+      toolCalls.push({
+        id: `call_${Date.now()}_briefing`,
+        name: 'assistant_daily_briefing',
+        arguments: {}
+      });
+    } else if (lower.includes('triage') || (lower.includes('sort') && lower.includes('inbox'))) {
+      text = "Triaging your inbox for action items, follow-ups, and financial records...";
+      toolCalls.push({
+        id: `call_${Date.now()}_triage`,
+        name: 'assistant_triage_inbox',
+        arguments: {}
+      });
+    } else if (lower.includes('task') || lower.includes('to-do') || lower.includes('todo') || lower.includes('remind me') || lower.includes('action item')) {
+      if (lower.includes('add') || lower.includes('create') || lower.includes('remind me') || lower.includes('new task')) {
+        text = "Adding action item to your executive task list...";
+        toolCalls.push({
+          id: `call_${Date.now()}_task_create`,
+          name: 'tasks_create',
+          arguments: {
+            title: lastUserMessage.replace(/remind me to:?/i, '').replace(/add task:?/i, '').replace(/create task:?/i, '').trim() || 'Executive task item',
+            priority: lower.includes('urgent') || lower.includes('high') ? 'high' : 'medium'
+          }
+        });
+      } else {
+        text = "Retrieving your active task list...";
+        toolCalls.push({
+          id: `call_${Date.now()}_task_list`,
+          name: 'tasks_list',
+          arguments: {
+            status: 'todo'
+          }
+        });
+      }
+    } else if (lower.includes('contact') || lower.includes('vip') || lower.includes('who is')) {
+      text = "Searching executive contacts and relationship history...";
+      toolCalls.push({
+        id: `call_${Date.now()}_contact_search`,
+        name: 'contacts_search',
+        arguments: {
+          query: lastUserMessage.replace(/search contact:?/i, '').replace(/who is/i, '').trim()
+        }
+      });
+    } else if (lower.includes('expense') || lower.includes('spending') || lower.includes('receipt')) {
+      text = "Aggregating your recent receipts and expenses...";
+      toolCalls.push({
+        id: `call_${Date.now()}_expenses`,
+        name: 'finance_summarize_expenses',
+        arguments: {}
+      });
     } else if (lower.includes('file') || lower.includes('workspace')) {
       if (lower.includes('list')) {
         text = "Listing files in your sandboxed workspace...";
