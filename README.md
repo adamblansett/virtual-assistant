@@ -133,6 +133,36 @@ npm run build
 
 ---
 
+## ⚖️ Legal Disclaimer & Limitation of Liability
+
+### 1. "AS IS" and Express Warranty Disclaimer
+This software, documentation, automated conversational planning engine, email ghostwriter, calendar coordinator, expense reconciler, and background scheduler are provided on an **"AS IS"** and **"AS AVAILABLE"** basis, **WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND**, either express, implied, statutory, or otherwise. To the maximum extent permitted by applicable law, the author, copyright holders, and contributors expressly disclaim all warranties, including but not limited to implied warranties of merchantability, fitness for a particular purpose, title, quiet enjoyment, accuracy, and non-infringement.
+
+### 2. Autonomous Action & Third-Party Service Side Effects
+- **Live System Mutations:** This application integrates with live external APIs and services (including Google Workspace, Gmail API, Google Calendar API v3, Telegram, WhatsApp, Slack, and cloud storage). Autonomous, scheduled, or user-prompted execution can send live emails, delete/trash messages, create, update, or cancel calendar appointments, modify contact databases, reconcile financial ledgers, and modify local or cloud files.
+- **User Oversight Mandate:** The user assumes sole and exclusive responsibility for supervising, configuring, and verifying all actions executed by the assistant, setting appropriate policy safety gates (e.g., `consequential` / `high_risk` approval requirements), and monitoring OAuth permission scopes.
+- **No Liability for Operational Side Effects:** The author and contributors accept zero responsibility or liability for lost, archived, or deleted emails; missed meetings; cancelled calendar events; erroneous ghostwritten communications; leaked confidential information; scheduling conflicts; or damaged business or personal relationships resulting from assistant actions.
+
+### 3. Generative AI Non-Determinism & Hallucinations
+- The conversational planner, executive briefing generator, ghostwriter, meeting dossier compiler, and document summarizer rely on large language models (LLMs). LLMs are inherently non-deterministic, probabilistic, and capable of generating inaccurate, fabricated (hallucinated), misleading, or outdated information.
+- Outputs, briefing dossiers, flight telemetry, and drafted messages must **always** be reviewed by a human before relying on them or sending them to third parties.
+
+### 4. Not Certified Accounting, Legal, Tax, or Medical Advice
+- Expense categorization, OCR invoice parsing, and receipt aggregation are provided strictly for developer workflow convenience and do **not** constitute certified bookkeeping, accounting, auditing, or tax preparation services.
+- Document search and contract clause indexing do **not** constitute legal review or legal counsel.
+- Flight tracking and itinerary coordination rely on third-party APIs and do not guarantee flight schedule accuracy.
+
+### 5. CRITICAL: NO EMERGENCY SERVICES
+**THIS SOFTWARE IS NOT INTENDED, DESIGNED, LICENSED, OR AUTHORIZED FOR USE IN EMERGENCY COMMUNICATIONS, EMERGENCY SERVICES DISPATCH (SUCH AS 911, E911, 999, 112, OR PUBLIC SAFETY ANSWERING POINTS), OR LIFE-CRITICAL SYSTEMS.**
+
+### 6. Limitation of Liability
+To the maximum extent permitted by applicable law, **IN NO EVENT SHALL THE AUTHOR, COPYRIGHT HOLDERS, OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, PUNITIVE, OR CONSEQUENTIAL DAMAGES** (including, but not limited to, loss of use, data, revenue, profits, business, or goodwill; missed meetings; missed flights or travel disruptions; misrouted or deleted communications; breach of confidentiality; contract disputes; regulatory fines; or the cost of procuring substitute executive assistant services), however caused and on any theory of liability, whether in contract, strict liability, tort (including negligence or otherwise), or statute, arising in any way out of the use, reproduction, modification, distribution, or reliance upon this software, even if advised of the possibility of such damages.
+
+### 7. Third-Party Trademarks & Non-Affiliation
+All product names, logos, brands, and registered trademarks mentioned within this project (including Google, Gmail, Google Calendar, Google Meet, Telegram, WhatsApp, Meta, Slack, Next.js, Node.js, and Vitest) are the property of their respective owners. Mention of these platforms or protocols does not imply endorsement, sponsorship, or affiliation with the author.
+
+---
+
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).
