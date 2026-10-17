@@ -10,6 +10,7 @@
 
 import { OmnichannelIngestionService } from './omnichannel';
 import { MobileApprovalService } from './mobile_approvals';
+import { AppStorage } from '@/lib/storage/db';
 
 export interface TelegramInlineKeyboardButton {
   text: string;
@@ -30,11 +31,16 @@ export interface TelegramOutboundRecord {
 export class TelegramBotService {
   private static outboundLog: TelegramOutboundRecord[] = [];
 
+  public static getBotToken(): string | undefined {
+    const stored = AppStorage.getIntegrationConfig()?.telegramBotToken;
+    return process.env.TELEGRAM_BOT_TOKEN || stored || undefined;
+  }
+
   /**
    * Returns whether a live Telegram bot token is configured.
    */
   public static hasLiveToken(): boolean {
-    return Boolean(process.env.TELEGRAM_BOT_TOKEN);
+    return Boolean(this.getBotToken());
   }
 
   /**
@@ -67,7 +73,7 @@ export class TelegramBotService {
     };
     this.outboundLog.push(record);
 
-    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const token = this.getBotToken();
     if (!token) {
       // Offline / test double mode
       return { success: true, messageId: Math.floor(Math.random() * 100000) };

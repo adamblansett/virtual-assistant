@@ -2,15 +2,134 @@
  * PDF & Receipt OCR Document Parsing Service.
  * 
  * Replaces human assistant expense and invoice processing:
- * - Ingests receipt/invoice text, email confirmations, or document attachments
+ * - Ingests receipt/invoice text, email confirmations, or base64 PDF/image attachments
+ * - Uses Gemini Multimodal Vision / OpenAI structured extraction when configured
  * - Extracts merchant names, transaction dates, totals, VAT/tax, and itemized line items
  * - Categorizes expenditures and automatically reconciles entries into the expense ledger
  */
 
 import { AppStorage } from '@/lib/storage/db';
 import { ParsedReceipt, ExpenseRecord } from '@/types';
+import { AIProviderFactory } from '@/lib/ai/adapter';
 
 export class ReceiptParserService {
+  /**
+   * Asynchronously parses a receipt using live AI Multimodal Vision / LLM extraction when configured,
+   * falling back to deterministic extraction.
+   */
+  public static async parseReceiptWithAI(
+    rawText: string,
+    sourceFileName?: string,
+    documentBase64?: string,
+    mimeType: string = 'application/pdf'
+  ): Promise<ParsedReceipt> {
+    if (AIProviderFactory.isLiveProviderConfigured()) {
+      try {
+        const config = AppStorage.getIntegrationConfig();
+        const geminiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
+
+        if (geminiKey && documentBase64) {
+          const cleanBase64 = documentBase64.replace(/^data:[^;]+;base64,/, '');
+          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [
+                {
+                  role: 'user',
+                  parts: [
+                    {
+                      text: `Extract receipt/invoice details as strict JSON with keys: merchantName (string), transactionDate (YYYY-MM-DD), currency (string), totalAmount (number), taxAmount (number), category ("software"|"travel"|"meals"|"office"|"utilities"|"financial"|"other"), lineItems (array of {description, amount, quantity}). Additional text context: ${rawText}`
+                    },
+                    { inlineData: { mimeType, data: cleanBase64 } }
+                  ]
+                }
+              ],
+              generationConfig: { temperature: 0.1, responseMimeType: 'application/json' }
+            })
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const jsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (jsonText) {
+              const extracted = JSON.parse(jsonText);
+              return this.persistExtractedReceipt(extracted, rawText, sourceFileName);
+            }
+          }
+        } else {
+          const ai = AIProviderFactory.getProvider();
+          const completion = await ai.generateCompletion([
+            {
+              role: 'system',
+              content: 'Extract receipt/invoice details into JSON with keys: merchantName, transactionDate (YYYY-MM-DD), currency, totalAmount (number), taxAmount (number), category ("software"|"travel"|"meals"|"office"|"utilities"|"financial"|"other"), lineItems ([{description, amount, quantity}]). Return only valid JSON.'
+            },
+            {
+              role: 'user',
+              content: rawText
+            }
+          ]);
+          const jsonMatch = completion.text?.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const extracted = JSON.parse(jsonMatch[0]);
+            if (extracted.merchantName && typeof extracted.totalAmount === 'number') {
+              return this.persistExtractedReceipt(extracted, rawText, sourceFileName);
+            }
+          }
+        }
+      } catch {
+        // Fall through to deterministic regex parser
+      }
+    }
+
+    return this.parseReceiptDocument(rawText, sourceFileName);
+  }
+
+  private static persistExtractedReceipt(
+    extracted: any,
+    rawText: string,
+    sourceFileName?: string
+  ): ParsedReceipt {
+    const receiptId = `rcpt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const totalAmount = Number(extracted.totalAmount) || 0;
+    const validCategories = ['software', 'travel', 'meals', 'office', 'utilities', 'financial', 'other'];
+    const category = validCategories.includes(extracted.category) ? extracted.category : 'other';
+
+    const parsedReceipt: ParsedReceipt = {
+      receiptId,
+      merchantName: String(extracted.merchantName || 'Corporate Vendor'),
+      transactionDate: String(extracted.transactionDate || new Date().toISOString().split('T')[0]),
+      currency: String(extracted.currency || 'USD'),
+      totalAmount,
+      taxAmount: Number(extracted.taxAmount) || 0,
+      category,
+      lineItems: Array.isArray(extracted.lineItems) && extracted.lineItems.length > 0
+        ? extracted.lineItems.map((li: any) => ({
+            description: String(li.description || 'Itemized charge'),
+            amount: Number(li.amount) || totalAmount,
+            quantity: Number(li.quantity) || 1
+          }))
+        : [{ description: `${extracted.merchantName || 'Vendor'} charge`, amount: totalAmount, quantity: 1 }],
+      confidenceScore: 0.98,
+      rawDocumentSnippet: (rawText || sourceFileName || '').slice(0, 300)
+    };
+
+    AppStorage.saveReceipt(parsedReceipt);
+    const expenseRecord: ExpenseRecord = {
+      id: `exp_${receiptId}`,
+      merchant: parsedReceipt.merchantName,
+      amount: parsedReceipt.totalAmount,
+      currency: parsedReceipt.currency,
+      date: parsedReceipt.transactionDate,
+      category: parsedReceipt.category,
+      source: sourceFileName ? `Parsed Document: ${sourceFileName}` : 'Receipt OCR Sync',
+      verified: true
+    };
+    AppStorage.saveExpense(expenseRecord);
+    return parsedReceipt;
+  }
+
   /**
    * Parses raw receipt text or invoice document and reconciles it to the financial ledger.
    */
@@ -31,20 +150,25 @@ export class ReceiptParserService {
 
     // 2. Amount Extraction
     let totalAmount = 0;
-    const amountMatches = rawText.match(/\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)|(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:usd|dollars)/gi);
-    if (amountMatches && amountMatches.length > 0) {
-      // Find the highest number or explicitly labeled total
-      const totalLine = lines.find(l => !/subtotal/i.test(l) && /(grand\s*total|amount\s*due|\btotal\b)/i.test(l));
-      if (totalLine) {
-        const numMatch = totalLine.match(/[\d,]+\.\d{2}/);
-        if (numMatch) totalAmount = parseFloat(numMatch[0].replace(/,/g, ''));
-      }
-      if (totalAmount === 0) {
+    const totalLine = lines.find(l => !/subtotal/i.test(l) && /(grand\s*total|amount\s*due|\btotal\b)/i.test(l));
+    if (totalLine) {
+      const numMatch = totalLine.match(/[\d,]+(?:\.\d{2})?/);
+      if (numMatch) totalAmount = parseFloat(numMatch[0].replace(/,/g, ''));
+    }
+    if (totalAmount === 0) {
+      const amountMatches = rawText.match(/\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)|(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:usd|dollars|eur|gbp)/gi);
+      if (amountMatches && amountMatches.length > 0) {
         const numbers = amountMatches.map(m => parseFloat(m.replace(/[^\d.]/g, ''))).filter(n => !isNaN(n));
         totalAmount = Math.max(...numbers, 0);
       }
     }
-    if (totalAmount === 0) totalAmount = 149.99; // Fallback estimate
+    if (totalAmount === 0) {
+      const anyDecimal = rawText.match(/\b(\d+(?:,\d{3})*\.\d{2})\b/g);
+      if (anyDecimal && anyDecimal.length > 0) {
+        const nums = anyDecimal.map(n => parseFloat(n.replace(/,/g, ''))).filter(n => !isNaN(n));
+        totalAmount = Math.max(...nums, 0);
+      }
+    }
 
     // 3. Tax / VAT Extraction
     let taxAmount = 0;
@@ -118,12 +242,12 @@ export class ReceiptParserService {
     // Automatically synchronize into corporate expense ledger
     const expenseRecord: ExpenseRecord = {
       id: `exp_${receiptId}`,
-      date: transactionDate,
       merchant: merchantName,
       amount: totalAmount,
       currency: 'USD',
+      date: transactionDate,
       category,
-      source: sourceFileName ? `Document OCR: ${sourceFileName}` : 'Scanned Invoice',
+      source: sourceFileName ? `Parsed Document: ${sourceFileName}` : 'Receipt OCR Sync',
       verified: true
     };
     AppStorage.saveExpense(expenseRecord);
@@ -131,9 +255,6 @@ export class ReceiptParserService {
     return parsedReceipt;
   }
 
-  /**
-   * Lists all parsed receipts.
-   */
   public static listReceipts(): ParsedReceipt[] {
     return AppStorage.listReceipts();
   }

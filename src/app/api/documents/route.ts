@@ -26,8 +26,13 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
+    if (body.action === 'sync') {
+      const syncResult = await CloudDriveSyncService.syncFromGoogleDrive(body.maxResults || 25);
+      return NextResponse.json({ success: true, ...syncResult });
+    }
+
     if (body.action === 'summarize') {
-      const summary = CloudDriveSyncService.summarizeDocument(body.query || body.id);
+      const summary = await CloudDriveSyncService.summarizeDocumentWithAI(body.query || body.id);
       return NextResponse.json({ success: true, summary });
     }
 

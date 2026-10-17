@@ -16,12 +16,14 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const oauthManager = new GmailOAuthManager();
-    const _tokens = await oauthManager.exchangeCodeForTokens(code);
-
     AppStorage.initialize();
+    const oauthManager = new GmailOAuthManager();
+    const tokens = await oauthManager.exchangeCodeForTokens(code);
+
+    AppStorage.saveOAuthTokens(tokens);
     AppStorage.updateIntegrationConfig({
-      useMockGmail: false
+      useMockGmail: false,
+      useMockCalendar: false
     });
 
     return NextResponse.redirect(new URL('/?oauth=success', req.url));

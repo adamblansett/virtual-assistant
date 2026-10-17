@@ -5,10 +5,12 @@
  */
 
 import { TaskPlan, PlannedAction, UserPreferences } from '@/types';
-import { IAIProviderAdapter } from '@/lib/ai/types';
+import { IAIProviderAdapter, AIMessage } from '@/lib/ai/types';
 import { ToolRegistry } from '@/lib/tools/registry';
 import { PolicyEngine } from '@/lib/policy/engine';
 import { SecuritySanitizer } from '@/lib/security/sanitizer';
+import { MemoryService } from '@/lib/services/memory';
+import { AppStorage } from '@/lib/storage/db';
 
 export class TaskPlanner {
   constructor(
@@ -30,23 +32,35 @@ export class TaskPlanner {
       return this.buildSendEmailPlan(planId, sanitizedPrompt);
     }
 
-    // Default conversational / tool-calling path via AI Provider
+    // Default conversational / tool-calling path via AI Provider with full JSON Schema parameters
     const tools = ToolRegistry.listTools().map(t => ({
       name: t.name,
       description: t.description,
-      parameters: { type: 'object' }
+      parameters: ToolRegistry.getToolJsonSchema(t)
     }));
 
-    const aiRes = await this.aiProvider.generateCompletion([
+    const memoryContext = MemoryService.formatMemoriesForPrompt();
+    const recentHistory = AppStorage.getConversationHistory()
+      .slice(-6)
+      .filter(m => m.text !== sanitizedPrompt)
+      .map<AIMessage>(m => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.text
+      }));
+
+    const messages: AIMessage[] = [
       {
         role: 'system',
-        content: `You are an AI Virtual Assistant. Generate structured action plans using available tools. Never bypass permissions.`
+        content: `You are an AI Virtual Assistant. Generate structured action plans using available tools. Never bypass permissions.\n\n${memoryContext}`
       },
+      ...recentHistory,
       {
         role: 'user',
         content: sanitizedPrompt
       }
-    ], tools);
+    ];
+
+    const aiRes = await this.aiProvider.generateCompletion(messages, tools);
 
     const plannedActions: PlannedAction[] = [];
 

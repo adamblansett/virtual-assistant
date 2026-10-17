@@ -26,6 +26,47 @@ export class MockAIProvider implements IAIProviderAdapter {
           olderThanYears: 5
         }
       });
+    } else if (lower.includes('remember that') || lower.includes('save to memory')) {
+      const factBody = lastUserMessage.replace(/remember that/i, '').replace(/save to memory:?/i, '').trim() || 'Executive preference';
+      text = "Saving this preference to your persistent executive memory...";
+      toolCalls.push({
+        id: `call_${Date.now()}_mem_save`,
+        name: 'memory_remember_fact',
+        arguments: {
+          key: factBody.slice(0, 40),
+          value: factBody,
+          category: 'preference'
+        }
+      });
+    } else if (lower.includes('recall memory') || lower.includes('what do you remember')) {
+      text = "Recalling stored facts from your persistent executive memory...";
+      toolCalls.push({
+        id: `call_${Date.now()}_mem_recall`,
+        name: 'memory_recall_facts',
+        arguments: {
+          query: ''
+        }
+      });
+    } else if (lower.includes('search the web') || lower.includes('web search')) {
+      text = "Searching the web for requested executive intelligence...";
+      toolCalls.push({
+        id: `call_${Date.now()}_web_search`,
+        name: 'web_search',
+        arguments: {
+          query: lastUserMessage.replace(/search the web for/i, '').replace(/web search:?/i, '').trim() || 'Executive intelligence',
+          maxResults: 5
+        }
+      });
+    } else if (lower.includes('read url') || lower.includes('https://')) {
+      const urlMatch = lastUserMessage.match(/(https?:\/\/[^\s]+)/i);
+      text = "Reading and extracting content from the requested URL...";
+      toolCalls.push({
+        id: `call_${Date.now()}_web_read`,
+        name: 'web_read_url',
+        arguments: {
+          url: urlMatch ? urlMatch[1] : 'https://example.com'
+        }
+      });
     } else if (lower.includes('search') || lower.includes('find email')) {
       text = "Searching your emails according to your criteria...";
       toolCalls.push({
@@ -354,6 +395,47 @@ export class MockAIProvider implements IAIProviderAdapter {
           }
         });
       }
+    } else if (lower.includes('remember that') || lower.includes('save to memory')) {
+      const factBody = lastUserMessage.replace(/remember that/i, '').replace(/save to memory:?/i, '').trim() || 'Executive preference';
+      text = "Saving this preference to your persistent executive memory...";
+      toolCalls.push({
+        id: `call_${Date.now()}_mem_save`,
+        name: 'memory_remember_fact',
+        arguments: {
+          key: factBody.slice(0, 40),
+          value: factBody,
+          category: 'preference'
+        }
+      });
+    } else if (lower.includes('recall memory') || lower.includes('what do you remember')) {
+      text = "Recalling stored facts from your persistent executive memory...";
+      toolCalls.push({
+        id: `call_${Date.now()}_mem_recall`,
+        name: 'memory_recall_facts',
+        arguments: {
+          query: ''
+        }
+      });
+    } else if (lower.includes('search the web') || lower.includes('web search')) {
+      text = "Searching the web for requested executive intelligence...";
+      toolCalls.push({
+        id: `call_${Date.now()}_web_search`,
+        name: 'web_search',
+        arguments: {
+          query: lastUserMessage.replace(/search the web for/i, '').replace(/web search:?/i, '').trim() || 'Executive intelligence',
+          maxResults: 5
+        }
+      });
+    } else if (lower.includes('read url') || lower.includes('https://')) {
+      const urlMatch = lastUserMessage.match(/(https?:\/\/[^\s]+)/i);
+      text = "Reading and extracting content from the requested URL...";
+      toolCalls.push({
+        id: `call_${Date.now()}_web_read`,
+        name: 'web_read_url',
+        arguments: {
+          url: urlMatch ? urlMatch[1] : 'https://example.com'
+        }
+      });
     } else if (lower.includes('transfer') || lower.includes('bank') || lower.includes('pizza') || lower.includes('drone') || lower.includes('stock')) {
       text = "I cannot fulfill this request. I do not have financial, ordering, or physical hardware integrations. My supported integrations are Gmail, Google Calendar, and Sandboxed Files.";
     } else if (lower.trim() === 'help' || lower.includes('what can you do') || lower.includes('make it better') || lower.includes('do something')) {

@@ -3,9 +3,15 @@ import { TaskPlanner } from '@/lib/planner/planner';
 import { WorkflowExecutionEngine } from '@/lib/engine/executor';
 import { AIProviderFactory } from '@/lib/ai/adapter';
 import { AppStorage } from '@/lib/storage/db';
+import { SecurityAuth } from '@/lib/security/auth';
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = SecurityAuth.verifyApiRequest(req);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.reason || 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await req.json();
     const message = body.message?.trim();
 

@@ -140,6 +140,25 @@ export class WorkflowExecutionEngine {
         };
       }
 
+      // General dynamic output-to-input chaining for {{$prev}} and {{$prev.field}}
+      if (dynamicContext.lastResult && action.arguments) {
+        const resolvedArgs: Record<string, any> = { ...action.arguments };
+        for (const [argKey, argVal] of Object.entries(resolvedArgs)) {
+          if (typeof argVal === 'string' && argVal.includes('{{$prev')) {
+            resolvedArgs[argKey] = argVal.replace(/\{\{\$prev(?:\.([a-zA-Z0-9_]+))?\}\}/g, (_match, prop) => {
+              if (!prop) {
+                return typeof dynamicContext.lastResult === 'string'
+                  ? dynamicContext.lastResult
+                  : JSON.stringify(dynamicContext.lastResult);
+              }
+              const val = dynamicContext.lastResult?.[prop];
+              return val !== undefined ? (typeof val === 'string' ? val : JSON.stringify(val)) : '';
+            });
+          }
+        }
+        action.arguments = resolvedArgs;
+      }
+
       // Idempotency check for consequential or write actions
       const idempotencyKey = IdempotencyManager.generateKey(action.toolName, action.arguments);
       action.idempotencyKey = idempotencyKey;
@@ -148,6 +167,8 @@ export class WorkflowExecutionEngine {
       if (idempotencyState && idempotencyState.status === 'completed') {
         action.status = 'succeeded';
         action.result = idempotencyState.result;
+        dynamicContext.lastResult = idempotencyState.result;
+        dynamicContext[`step_${i}`] = idempotencyState.result;
         succeeded++;
         continue;
       }
@@ -170,6 +191,8 @@ export class WorkflowExecutionEngine {
         );
 
         action.result = toolResult;
+        dynamicContext.lastResult = toolResult;
+        dynamicContext[`step_${i}`] = toolResult;
         const durationMs = Date.now() - startTime;
 
         // If preview step, save qualifying IDs into dynamic context and update downstream actions

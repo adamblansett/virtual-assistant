@@ -62,4 +62,19 @@ export class SecuritySanitizer {
       .slice(0, maxLength)
       .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F\u007F]/g, '');
   }
+
+  /**
+   * Strips HTML tags from raw web markup.
+   */
+  public static stripHtml(html: string): string {
+    if (!html) return '';
+    return html.replace(/<[^>]+>/g, ' ');
+  }
+
+  /**
+   * Alias for wrapUntrustedData for external web and document payloads.
+   */
+  public static wrapUntrustedContent(content: string, source: string = 'external_data'): string {
+    return this.wrapUntrustedData(content, source);
+  }
 }

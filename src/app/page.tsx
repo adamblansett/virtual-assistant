@@ -125,7 +125,38 @@ export default function AssistantApp() {
 
         recorder.onstop = () => {
           stream.getTracks().forEach((track) => track.stop());
-          if (!inputMessage.trim()) {
+          const mimeType = recorder.mimeType || 'audio/webm';
+          const blob = new Blob(audioChunksRef.current, { type: mimeType });
+          if (blob.size > 0 && typeof FileReader !== 'undefined') {
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+              try {
+                const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+                const res = await fetch('/api/audio/transcribe', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    audioBase64: dataUrl,
+                    mimeType,
+                    fileName: 'voice_command.webm'
+                  })
+                });
+                if (res.ok) {
+                  const data = await res.json();
+                  if (data.transcript) {
+                    setInputMessage(data.transcript);
+                    return;
+                  }
+                }
+              } catch {
+                // Fallback to offline voice memo preset
+              }
+              if (!inputMessage.trim()) {
+                setInputMessage('Voice Memo: Clean up old promotional emails and prepare daily briefing');
+              }
+            };
+            reader.readAsDataURL(blob);
+          } else if (!inputMessage.trim()) {
             setInputMessage('Voice Memo: Clean up old promotional emails and prepare daily briefing');
           }
         };

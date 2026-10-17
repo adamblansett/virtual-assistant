@@ -32,6 +32,8 @@ import { ReceiptParserService } from '@/lib/services/receipt_parser';
 import { CloudDriveSyncService } from '@/lib/services/drive_sync';
 import { FlightTrackerService } from '@/lib/services/flight_tracker';
 import { BackgroundSchedulerService } from '@/lib/services/scheduler';
+import { MemoryService } from '@/lib/services/memory';
+import { WebResearchService } from '@/lib/services/web_research';
 
 export interface ToolDefinition {
   name: string;
@@ -192,6 +194,29 @@ export const TravelTrackFlightStatusArgsSchema = z.object({
 
 export const SchedulerEvaluateJobsArgsSchema = z.object({
   forceAll: z.boolean().default(false)
+});
+
+export const MemoryRememberFactArgsSchema = z.object({
+  key: z.string().min(1),
+  value: z.string().min(1),
+  category: z.enum(['preference', 'relationship', 'travel', 'work', 'general']).default('general')
+});
+
+export const MemoryRecallFactsArgsSchema = z.object({
+  query: z.string().default('')
+});
+
+export const WebSearchArgsSchema = z.object({
+  query: z.string().min(1),
+  maxResults: z.number().min(1).max(10).default(5)
+});
+
+export const WebReadUrlArgsSchema = z.object({
+  url: z.string().url()
+});
+
+export const DriveSyncDocumentsArgsSchema = z.object({
+  maxResults: z.number().min(1).max(100).default(25)
 });
 
 export interface AdaptersBundle {
@@ -575,6 +600,56 @@ export class ToolRegistry {
       requiredPermission: 'assistant.read',
       approvalRequiredByDefault: false
     });
+
+    this.registerTool({
+      name: 'memory_remember_fact',
+      integration: 'assistant',
+      description: 'Saves a persistent executive memory fact (preference, VIP relationship, travel preference, or work context).',
+      schema: MemoryRememberFactArgsSchema,
+      riskLevel: 'reversible_write',
+      requiredPermission: 'assistant.write',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'memory_recall_facts',
+      integration: 'assistant',
+      description: 'Searches persistent executive memory for stored facts, preferences, and relationship notes.',
+      schema: MemoryRecallFactsArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'assistant.read',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'web_search',
+      integration: 'web_research',
+      description: 'Performs a web search for company background, news, restaurants, or executive research.',
+      schema: WebSearchArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'web.read',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'web_read_url',
+      integration: 'web_research',
+      description: 'Fetches and extracts readable text from a public HTTPS/HTTP URL with SSRF protection.',
+      schema: WebReadUrlArgsSchema,
+      riskLevel: 'read',
+      requiredPermission: 'web.read',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'drive_sync_google_drive',
+      integration: 'assistant',
+      description: 'Synchronizes real files and documents from Google Drive API v3 into the indexed document store.',
+      schema: DriveSyncDocumentsArgsSchema,
+      riskLevel: 'reversible_write',
+      requiredPermission: 'files.read',
+      approvalRequiredByDefault: false
+    });
   }
 
   public static registerTool(tool: ToolDefinition): void {
@@ -587,6 +662,43 @@ export class ToolRegistry {
 
   public static listTools(): ToolDefinition[] {
     return Array.from(this.tools.values());
+  }
+
+  /**
+   * Converts a ToolDefinition's Zod schema into a standard JSON Schema object
+   * suitable for Gemini functionDeclarations and OpenAI function calling.
+   */
+  public static getToolJsonSchema(tool: ToolDefinition): Record<string, any> {
+    try {
+      if (typeof (z as any).toJSONSchema === 'function') {
+        const jsonSchema = (z as any).toJSONSchema(tool.schema);
+        if (jsonSchema && typeof jsonSchema === 'object') {
+          const { $schema: _unusedSchema, ...rest } = jsonSchema;
+          return rest;
+        }
+      }
+    } catch {
+      // Fallback to manual shape introspection below
+    }
+
+    const shape = (tool.schema as any)?.shape || {};
+    const properties: Record<string, any> = {};
+    const required: string[] = [];
+
+    for (const [key, fieldSchema] of Object.entries(shape)) {
+      const field: any = fieldSchema;
+      const isOptional = typeof field?.isOptional === 'function' ? field.isOptional() : false;
+      if (!isOptional) {
+        required.push(key);
+      }
+      properties[key] = { type: 'string' };
+    }
+
+    return {
+      type: 'object',
+      properties,
+      ...(required.length > 0 ? { required } : {})
+    };
   }
 
   /**
@@ -864,6 +976,35 @@ export class ToolRegistry {
 
       case 'scheduler_evaluate_jobs': {
         return await BackgroundSchedulerService.evaluateAndRunDueJobs();
+      }
+
+      case 'memory_remember_fact': {
+        const args = MemoryRememberFactArgsSchema.parse(rawArgs);
+        return MemoryService.rememberFact(
+          `${args.key}: ${args.value}`,
+          args.category as any,
+          'user'
+        );
+      }
+
+      case 'memory_recall_facts': {
+        const args = MemoryRecallFactsArgsSchema.parse(rawArgs);
+        return MemoryService.recallFacts(args.query);
+      }
+
+      case 'web_search': {
+        const args = WebSearchArgsSchema.parse(rawArgs);
+        return await WebResearchService.searchWeb(args.query, args.maxResults);
+      }
+
+      case 'web_read_url': {
+        const args = WebReadUrlArgsSchema.parse(rawArgs);
+        return await WebResearchService.readUrl(args.url);
+      }
+
+      case 'drive_sync_google_drive': {
+        const args = DriveSyncDocumentsArgsSchema.parse(rawArgs);
+        return await CloudDriveSyncService.syncFromGoogleDrive(args.maxResults);
       }
 
       default:

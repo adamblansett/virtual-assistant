@@ -1,7 +1,10 @@
 /**
- * Google OAuth 2.0 Token Manager.
- * Safely creates consent URLs, exchanges auth codes for tokens, and refreshes tokens.
+ * Google OAuth 2.0 Token Manager (Unified for Gmail, Google Calendar, and Google Drive).
+ * Safely creates consent URLs, exchanges auth codes for tokens, persists encrypted tokens
+ * in AppStorage, and automatically refreshes expired access tokens.
  */
+
+import { AppStorage } from '@/lib/storage/db';
 
 export interface StoredOAuthTokens {
   accessToken: string;
@@ -20,13 +23,27 @@ export class GmailOAuthManager {
   public static readonly DEFAULT_SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.modify',
-    'https://www.googleapis.com/auth/gmail.compose'
+    'https://www.googleapis.com/auth/gmail.compose',
+    'https://www.googleapis.com/auth/calendar',
+    'https://www.googleapis.com/auth/drive.readonly'
   ];
 
   constructor() {
     this.clientId = process.env.GOOGLE_CLIENT_ID || '';
     this.clientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
     this.redirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/integrations/gmail/callback';
+  }
+
+  public isConfigured(): boolean {
+    return Boolean(this.clientId && this.clientSecret);
+  }
+
+  public async getValidAccessToken(): Promise<string> {
+    const token = await this.getAccessToken();
+    if (!token) {
+      throw new Error('No valid Google OAuth access token available.');
+    }
+    return token;
   }
 
   public getAuthUrl(state?: string): string {
@@ -71,14 +88,37 @@ export class GmailOAuthManager {
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
       expiresAt: Date.now() + (data.expires_in * 1000),
-      scopes: (data.scope || '').split(' ')
+      scopes: (data.scope || '').split(' ').filter(Boolean)
     };
 
+    // Best-effort profile lookup for user email
+    try {
+      const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+        headers: { Authorization: `Bearer ${tokens.accessToken}` }
+      });
+      if (profileRes.ok) {
+        const profileData = await profileRes.json();
+        if (profileData.emailAddress) {
+          tokens.email = profileData.emailAddress;
+        }
+      }
+    } catch {
+      // Non-fatal
+    }
+
     this.tokens = tokens;
+    AppStorage.saveOAuthTokens(tokens);
     return tokens;
   }
 
   public async getValidTokens(): Promise<StoredOAuthTokens | null> {
+    if (!this.tokens) {
+      const stored = AppStorage.getOAuthTokens();
+      if (stored && stored.accessToken) {
+        this.tokens = stored;
+      }
+    }
+
     if (!this.tokens) return null;
 
     // Check expiration with a 60-second safety buffer
@@ -99,6 +139,9 @@ export class GmailOAuthManager {
   }
 
   public async refreshAccessToken(): Promise<string | null> {
+    if (!this.tokens) {
+      this.tokens = AppStorage.getOAuthTokens();
+    }
     if (!this.tokens?.refreshToken) return null;
 
     try {
@@ -118,6 +161,10 @@ export class GmailOAuthManager {
       const data = await res.json();
       this.tokens.accessToken = data.access_token;
       this.tokens.expiresAt = Date.now() + (data.expires_in * 1000);
+      if (data.refresh_token) {
+        this.tokens.refreshToken = data.refresh_token;
+      }
+      AppStorage.saveOAuthTokens(this.tokens);
       return this.tokens.accessToken;
     } catch {
       return null;
@@ -125,9 +172,10 @@ export class GmailOAuthManager {
   }
 
   public async revokeTokens(): Promise<void> {
-    if (this.tokens?.accessToken) {
+    const active = this.tokens || AppStorage.getOAuthTokens();
+    if (active?.accessToken) {
       try {
-        await fetch(`https://oauth2.googleapis.com/revoke?token=${this.tokens.accessToken}`, {
+        await fetch(`https://oauth2.googleapis.com/revoke?token=${active.accessToken}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         });
@@ -136,9 +184,11 @@ export class GmailOAuthManager {
       }
     }
     this.tokens = null;
+    AppStorage.clearOAuthTokens();
   }
 
   public setTokensDirectly(tokens: StoredOAuthTokens): void {
     this.tokens = tokens;
+    AppStorage.saveOAuthTokens(tokens);
   }
 }

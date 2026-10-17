@@ -11,8 +11,18 @@ import {
   TaskItem, ContactItem, ExpenseRecord,
   TripItinerary, MeetingDossier, RoutineExecutionResult,
   ExecutiveVoiceProfile, ExecutiveVoiceProfileSchema,
-  CloudDocument, ScheduledJobConfig, ParsedReceipt
+  CloudDocument, ScheduledJobConfig, ParsedReceipt,
+  MemoryFact
 } from '@/types';
+import { CryptoVault } from '@/lib/security/vault';
+
+export interface PersistedOAuthTokens {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt: number;
+  email?: string;
+  scopes: string[];
+}
 
 interface AppState {
   plans: Record<string, TaskPlan>;
@@ -28,6 +38,8 @@ interface AppState {
   documents: Record<string, CloudDocument>;
   scheduledJobs: Record<string, ScheduledJobConfig>;
   receipts: Record<string, ParsedReceipt>;
+  memories: Record<string, MemoryFact>;
+  oauthTokens?: PersistedOAuthTokens | null;
   mobileApprovals: Record<string, { planId: string; token: string; createdAt: string; status: 'pending' | 'approved' | 'rejected' }>;
   integrationConfig: {
     useMockGmail: boolean;
@@ -293,6 +305,25 @@ export class AppStorage {
       }
     };
 
+    const initialMemories: Record<string, MemoryFact> = {
+      'mem_01': {
+        id: 'mem_01',
+        category: 'scheduling',
+        fact: 'Protect Friday afternoons after 2:00 PM for deep focus work; avoid booking external calls during that window.',
+        source: 'user',
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString()
+      },
+      'mem_02': {
+        id: 'mem_02',
+        category: 'travel',
+        fact: 'Prefers aisle seats on Delta Air Lines (SkyMiles VIP) and direct morning flights out of BOS.',
+        source: 'user',
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString()
+      }
+    };
+
     return {
       plans: {},
       conversations: [],
@@ -307,6 +338,8 @@ export class AppStorage {
       documents: initialDocuments,
       scheduledJobs: initialScheduledJobs,
       receipts: {},
+      memories: initialMemories,
+      oauthTokens: null,
       mobileApprovals: {},
       integrationConfig: {
         useMockGmail: true,
@@ -314,6 +347,62 @@ export class AppStorage {
         aiProvider: 'mock'
       }
     };
+  }
+
+  private static decryptStateSecrets(parsed: AppState): AppState {
+    const defaults = this.getDefaultState();
+    const merged: AppState = {
+      ...defaults,
+      ...parsed,
+      memories: parsed.memories || defaults.memories,
+      oauthTokens: parsed.oauthTokens ?? null,
+      integrationConfig: {
+        ...defaults.integrationConfig,
+        ...(parsed.integrationConfig || {})
+      }
+    };
+
+    if (merged.integrationConfig) {
+      merged.integrationConfig.geminiApiKey = CryptoVault.decrypt(merged.integrationConfig.geminiApiKey);
+      merged.integrationConfig.openaiApiKey = CryptoVault.decrypt(merged.integrationConfig.openaiApiKey);
+      merged.integrationConfig.telegramBotToken = CryptoVault.decrypt(merged.integrationConfig.telegramBotToken);
+    }
+
+    if (merged.oauthTokens) {
+      merged.oauthTokens = {
+        ...merged.oauthTokens,
+        accessToken: CryptoVault.decrypt(merged.oauthTokens.accessToken) || '',
+        refreshToken: CryptoVault.decrypt(merged.oauthTokens.refreshToken)
+      };
+    }
+
+    return merged;
+  }
+
+  private static encryptStateForDisk(state: AppState): AppState {
+    const clone: AppState = JSON.parse(JSON.stringify(state));
+
+    if (clone.integrationConfig) {
+      if (clone.integrationConfig.geminiApiKey) {
+        clone.integrationConfig.geminiApiKey = CryptoVault.encrypt(clone.integrationConfig.geminiApiKey);
+      }
+      if (clone.integrationConfig.openaiApiKey) {
+        clone.integrationConfig.openaiApiKey = CryptoVault.encrypt(clone.integrationConfig.openaiApiKey);
+      }
+      if (clone.integrationConfig.telegramBotToken) {
+        clone.integrationConfig.telegramBotToken = CryptoVault.encrypt(clone.integrationConfig.telegramBotToken);
+      }
+    }
+
+    if (clone.oauthTokens) {
+      clone.oauthTokens = {
+        ...clone.oauthTokens,
+        accessToken: CryptoVault.encrypt(clone.oauthTokens.accessToken) || '',
+        refreshToken: CryptoVault.encrypt(clone.oauthTokens.refreshToken)
+      };
+    }
+
+    return clone;
   }
 
   public static initialize(): void {
@@ -327,7 +416,7 @@ export class AppStorage {
 
       if (fs.existsSync(this.filePath)) {
         const raw = fs.readFileSync(this.filePath, 'utf-8');
-        this.state = JSON.parse(raw);
+        this.state = this.decryptStateSecrets(JSON.parse(raw));
       } else {
         this.state = this.getDefaultState();
         this.save();
@@ -342,7 +431,10 @@ export class AppStorage {
     try {
       const dataDir = path.dirname(this.filePath);
       if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-      fs.writeFileSync(this.filePath, JSON.stringify(this.state, null, 2), 'utf-8');
+      const encryptedClone = this.encryptStateForDisk(this.state);
+      const tmpPath = `${this.filePath}.tmp.${process.pid}.${Math.random().toString(36).slice(2, 8)}`;
+      fs.writeFileSync(tmpPath, JSON.stringify(encryptedClone, null, 2), { encoding: 'utf-8', mode: 0o600 });
+      fs.renameSync(tmpPath, this.filePath);
     } catch {
       // Fallback in memory
     }
@@ -667,6 +759,59 @@ export class AppStorage {
     this.initialize();
     if (!this.state || !this.state.mobileApprovals[token]) return false;
     this.state.mobileApprovals[token].status = approved ? 'approved' : 'rejected';
+    this.save();
+    return true;
+  }
+
+  // --- OAuth Tokens (Encrypted at Rest) ---
+  public static getOAuthTokens(): PersistedOAuthTokens | null {
+    this.initialize();
+    return this.state?.oauthTokens || null;
+  }
+
+  public static saveOAuthTokens(tokens: PersistedOAuthTokens): void {
+    this.initialize();
+    if (!this.state) return;
+    this.state.oauthTokens = tokens;
+    this.save();
+  }
+
+  public static clearOAuthTokens(): void {
+    this.initialize();
+    if (!this.state) return;
+    this.state.oauthTokens = null;
+    this.save();
+  }
+
+  // --- Long-Term Executive Memory ---
+  public static listMemories(): MemoryFact[] {
+    this.initialize();
+    return Object.values(this.state?.memories || {}).sort((a, b) =>
+      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
+  }
+
+  public static saveMemory(memory: MemoryFact): void {
+    this.initialize();
+    if (!this.state) return;
+    if (!this.state.memories) this.state.memories = {};
+    this.state.memories[memory.id] = memory;
+    this.save();
+  }
+
+  public static searchMemories(query: string, category?: string): MemoryFact[] {
+    const q = query.toLowerCase().trim();
+    return this.listMemories().filter(m => {
+      if (category && m.category !== category) return false;
+      if (!q) return true;
+      return m.fact.toLowerCase().includes(q) || m.category.toLowerCase().includes(q);
+    });
+  }
+
+  public static deleteMemory(id: string): boolean {
+    this.initialize();
+    if (!this.state?.memories?.[id]) return false;
+    delete this.state.memories[id];
     this.save();
     return true;
   }

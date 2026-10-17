@@ -420,3 +420,13 @@ export const ScheduledJobConfigSchema = z.object({
 });
 export type ScheduledJobConfig = z.infer<typeof ScheduledJobConfigSchema>;
 
+// --- Persistent Executive Long-Term Memory ---
+export const MemoryFactSchema = z.object({
+  id: z.string(),
+  category: z.enum(['preference', 'scheduling', 'travel', 'relationship', 'finance', 'general']).default('general'),
+  fact: z.string().min(1),
+  source: z.string().default('user'),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+export type MemoryFact = z.infer<typeof MemoryFactSchema>;
