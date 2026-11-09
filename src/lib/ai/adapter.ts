@@ -1,13 +1,14 @@
 /**
  * AI Provider Factory.
- * Selects Gemini, OpenAI-compatible, or Mock provider based on AppStorage configuration
- * and environment variables.
+ * Selects Gemini, OpenAI-compatible, Open-Weight (Ollama / vLLM), or Mock provider
+ * based on AppStorage configuration and environment variables.
  */
 
 import { IAIProviderAdapter } from './types';
 import { MockAIProvider } from './mock';
 import { GeminiProvider } from './gemini';
 import { OpenAICompatibleProvider } from './openai';
+import { OpenWeightProvider, DEFAULT_OPEN_WEIGHT_MODEL, DEFAULT_OLLAMA_BASE_URL } from './openweight';
 import { AppStorage } from '@/lib/storage/db';
 
 export class AIProviderFactory {
@@ -27,12 +28,19 @@ export class AIProviderFactory {
       if (apiKey || baseUrl) return new OpenAICompatibleProvider(apiKey, baseUrl, model);
     }
 
+    if (providerType === 'open_weight' || providerType === 'ollama') {
+      const model = storedConfig.openWeightModel || process.env.OPEN_WEIGHT_MODEL || DEFAULT_OPEN_WEIGHT_MODEL;
+      const baseUrl = storedConfig.openWeightBaseUrl || process.env.OLLAMA_BASE_URL || DEFAULT_OLLAMA_BASE_URL;
+      const apiKey = storedConfig.openWeightApiKey || process.env.OPEN_WEIGHT_API_KEY || '';
+      return new OpenWeightProvider(model, baseUrl, apiKey);
+    }
+
     // Default to deterministic Mock provider (zero cost, zero keys needed, 100% testable)
     return new MockAIProvider();
   }
 
   /**
-   * Returns true if a live LLM provider (Gemini or OpenAI) is configured with credentials.
+   * Returns true if a live LLM provider (Gemini, OpenAI, or Open-Weight Ollama/vLLM) is configured.
    */
   public static isLiveProviderConfigured(): boolean {
     const storedConfig = AppStorage.getIntegrationConfig();
@@ -43,6 +51,9 @@ export class AIProviderFactory {
     }
     if (providerType === 'openai') {
       return Boolean(storedConfig.openaiApiKey || process.env.OPENAI_API_KEY || process.env.OPENAI_BASE_URL);
+    }
+    if (providerType === 'open_weight' || providerType === 'ollama') {
+      return true;
     }
     return false;
   }

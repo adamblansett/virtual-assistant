@@ -48,6 +48,9 @@ interface AppState {
     geminiApiKey?: string;
     openaiApiKey?: string;
     telegramBotToken?: string;
+    openWeightModel?: string;
+    openWeightBaseUrl?: string;
+    openWeightApiKey?: string;
   };
 }
 
@@ -344,7 +347,9 @@ export class AppStorage {
       integrationConfig: {
         useMockGmail: true,
         useMockCalendar: true,
-        aiProvider: 'mock'
+        aiProvider: 'mock',
+        openWeightModel: 'qwen2.5:14b',
+        openWeightBaseUrl: 'http://localhost:11434/v1'
       }
     };
   }
@@ -366,6 +371,7 @@ export class AppStorage {
       merged.integrationConfig.geminiApiKey = CryptoVault.decrypt(merged.integrationConfig.geminiApiKey);
       merged.integrationConfig.openaiApiKey = CryptoVault.decrypt(merged.integrationConfig.openaiApiKey);
       merged.integrationConfig.telegramBotToken = CryptoVault.decrypt(merged.integrationConfig.telegramBotToken);
+      merged.integrationConfig.openWeightApiKey = CryptoVault.decrypt(merged.integrationConfig.openWeightApiKey);
     }
 
     if (merged.oauthTokens) {
@@ -391,6 +397,9 @@ export class AppStorage {
       }
       if (clone.integrationConfig.telegramBotToken) {
         clone.integrationConfig.telegramBotToken = CryptoVault.encrypt(clone.integrationConfig.telegramBotToken);
+      }
+      if (clone.integrationConfig.openWeightApiKey) {
+        clone.integrationConfig.openWeightApiKey = CryptoVault.encrypt(clone.integrationConfig.openWeightApiKey);
       }
     }
 

@@ -31,10 +31,85 @@ export default function AssistantApp() {
   const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
   const [workspaceFiles, setWorkspaceFiles] = useState<{ baseDir: string; files: any[] }>({ baseDir: '', files: [] });
   const [backgroundJobs, setBackgroundJobs] = useState<any[]>([]);
-  const [integrationConfig, setIntegrationConfig] = useState<{ useMockGmail: boolean; aiProvider: string; geminiApiKey?: string; openaiApiKey?: string }>({
+  const [integrationConfig, setIntegrationConfig] = useState<{
+    useMockGmail: boolean;
+    aiProvider: string;
+    geminiApiKey?: string;
+    openaiApiKey?: string;
+    telegramBotToken?: string;
+    openWeightModel?: string;
+    openWeightBaseUrl?: string;
+    openWeightApiKey?: string;
+  }>({
     useMockGmail: true,
-    aiProvider: 'mock'
+    aiProvider: 'mock',
+    openWeightModel: 'qwen2.5:14b',
+    openWeightBaseUrl: 'http://localhost:11434/v1'
   });
+  const [ollamaStatus, setOllamaStatus] = useState<{
+    reachable: boolean;
+    endpoint: string;
+    installedModels: string[];
+    presets: Array<{
+      id: string;
+      name: string;
+      family: string;
+      parameterCount: string;
+      vramRequired: string;
+      recommended: boolean;
+      nativeToolCalling: boolean;
+      multimodalVision: boolean;
+      strengths: string;
+      pullCommand: string;
+    }>;
+    error?: string;
+  } | null>(null);
+  const [isCheckingOllama, setIsCheckingOllama] = useState(false);
+  const [isPullingOllamaModel, setIsPullingOllamaModel] = useState(false);
+  const [ollamaPullFeedback, setOllamaPullFeedback] = useState<string | null>(null);
+
+  const checkLocalOllamaStatus = async (baseUrl?: string) => {
+    setIsCheckingOllama(true);
+    try {
+      const urlParam = baseUrl ? `?baseUrl=${encodeURIComponent(baseUrl)}` : '';
+      const res = await fetch(`/api/integrations/ollama${urlParam}`);
+      if (res.ok) {
+        const data = await res.json();
+        setOllamaStatus(data);
+      }
+    } catch {
+      // Ignore network error
+    } finally {
+      setIsCheckingOllama(false);
+    }
+  };
+
+  const handlePullOllamaModel = async () => {
+    const model = integrationConfig.openWeightModel || 'qwen2.5:14b';
+    setIsPullingOllamaModel(true);
+    setOllamaPullFeedback(`Pulling ${model} via Ollama...`);
+    try {
+      const res = await fetch('/api/integrations/ollama', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          baseUrl: integrationConfig.openWeightBaseUrl || 'http://localhost:11434/v1'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setOllamaPullFeedback(`✓ Successfully pulled ${model} (${data.status})`);
+        await checkLocalOllamaStatus(integrationConfig.openWeightBaseUrl);
+      } else {
+        setOllamaPullFeedback(`⚠️ ${data.error || 'Could not pull model via Ollama daemon.'}`);
+      }
+    } catch (err: any) {
+      setOllamaPullFeedback(`⚠️ ${err.message || 'Ollama pull request failed.'}`);
+    } finally {
+      setIsPullingOllamaModel(false);
+    }
+  };
 
   // Executive VA states
   const [briefing, setBriefing] = useState<ExecutiveBriefing | null>(null);
@@ -2807,24 +2882,190 @@ export default function AssistantApp() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                {['mock', 'gemini', 'openai'].map(provider => (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { id: 'mock', title: 'Deterministic Mock', subtitle: 'Zero-cost offline testing' },
+                  { id: 'open_weight', title: 'Open-Weight (Ollama)', subtitle: 'Qwen 2.5 / Llama 3.3 / Mistral / Gemma 3' },
+                  { id: 'gemini', title: 'Google Gemini (BYOK)', subtitle: 'Gemini 2.5 Flash / Pro' },
+                  { id: 'openai', title: 'OpenAI (BYOK)', subtitle: 'GPT-4o / OpenRouter / Groq' }
+                ].map(provider => (
                   <button
-                    key={provider}
-                    onClick={() => handleUpdateConfig({ aiProvider: provider })}
+                    key={provider.id}
+                    onClick={() => {
+                      handleUpdateConfig({ aiProvider: provider.id });
+                      if (provider.id === 'open_weight') {
+                        checkLocalOllamaStatus(integrationConfig.openWeightBaseUrl);
+                      }
+                    }}
                     className={`p-3.5 rounded-xl border text-left transition ${
-                      integrationConfig.aiProvider === provider
+                      integrationConfig.aiProvider === provider.id
                         ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-200 font-bold'
                         : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300'
                     }`}
                   >
-                    <div className="text-xs capitalize">{provider === 'mock' ? 'Deterministic Mock' : provider}</div>
+                    <div className="text-xs">{provider.title}</div>
                     <div className="text-[11px] text-zinc-400 font-normal mt-0.5">
-                      {provider === 'mock' ? 'Zero-cost offline testing' : provider === 'gemini' ? 'Google Gemini 2.5 Flash' : 'OpenAI / Ollama / Groq'}
+                      {provider.subtitle}
                     </div>
                   </button>
                 ))}
               </div>
+
+              {/* Open-Weight Model Selector & Local Ollama Configuration */}
+              {integrationConfig.aiProvider === 'open_weight' && (
+                <div className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-indigo-200 dark:border-indigo-900/50 space-y-4 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h4 className="font-bold text-zinc-800 dark:text-zinc-200">
+                        Open-Weight Model Preset (Ollama / vLLM)
+                      </h4>
+                      <p className="text-[11px] text-zinc-500">
+                        Select a recommended open-weight model preset or enter any custom Ollama model tag.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => checkLocalOllamaStatus(integrationConfig.openWeightBaseUrl)}
+                        disabled={isCheckingOllama}
+                        className="px-3 py-1.5 rounded-lg bg-zinc-200 dark:bg-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-600 text-zinc-800 dark:text-zinc-100 font-semibold text-[11px] flex items-center gap-1.5 transition"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isCheckingOllama ? 'animate-spin' : ''}`} />
+                        Check Ollama Daemon
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handlePullOllamaModel}
+                        disabled={isPullingOllamaModel}
+                        className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-[11px] flex items-center gap-1.5 transition"
+                      >
+                        {isPullingOllamaModel ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                        Pull Model in Ollama
+                      </button>
+                    </div>
+                  </div>
+
+                  {ollamaPullFeedback && (
+                    <div className="p-2.5 rounded-lg bg-indigo-50/70 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 text-[11px] text-indigo-800 dark:text-indigo-200 font-medium">
+                      {ollamaPullFeedback}
+                    </div>
+                  )}
+
+                  {ollamaStatus && (
+                    <div className={`p-3 rounded-lg border text-[11px] flex items-center justify-between ${
+                      ollamaStatus.reachable
+                        ? 'bg-emerald-50/70 border-emerald-200 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300'
+                        : 'bg-amber-50/70 border-amber-200 text-amber-800 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300'
+                    }`}>
+                      <div>
+                        <span className="font-bold">
+                          {ollamaStatus.reachable ? '● Ollama Daemon Online' : '○ Ollama Daemon Not Detected'}
+                        </span>
+                        <span className="ml-2 font-mono">({ollamaStatus.endpoint})</span>
+                        {ollamaStatus.reachable && (
+                          <div className="mt-0.5 text-[10px]">
+                            Installed local models: {ollamaStatus.installedModels.length > 0 ? ollamaStatus.installedModels.join(', ') : 'None pulled yet'}
+                          </div>
+                        )}
+                      </div>
+                      <code className="px-2 py-1 rounded bg-black/10 dark:bg-white/10 font-mono text-[10px]">
+                        ollama pull {integrationConfig.openWeightModel || 'qwen2.5:14b'}
+                      </code>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="font-semibold block mb-1">Select Open-Weight Model Preset</label>
+                      <select
+                        value={integrationConfig.openWeightModel || 'qwen2.5:14b'}
+                        onChange={(e) => handleUpdateConfig({ openWeightModel: e.target.value })}
+                        className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 font-mono text-xs"
+                      >
+                        <option value="qwen2.5:14b">qwen2.5:14b — Qwen 2.5 14B (Recommended · ~9GB VRAM)</option>
+                        <option value="qwen2.5:7b">qwen2.5:7b — Qwen 2.5 7B (Fast / Laptop · ~4.7GB VRAM)</option>
+                        <option value="qwen3:8b">qwen3:8b — Qwen 3 8B (Hybrid Reasoning · ~5.2GB VRAM)</option>
+                        <option value="llama3.1:8b">llama3.1:8b — Meta Llama 3.1 8B (~4.9GB VRAM)</option>
+                        <option value="llama3.3:70b">llama3.3:70b — Meta Llama 3.3 70B (~42GB VRAM / Hosted)</option>
+                        <option value="mistral-small:24b">mistral-small:24b — Mistral Small 3 24B (~14GB VRAM)</option>
+                        <option value="gemma3:12b">gemma3:12b — Google Gemma 3 12B Vision (~8.1GB VRAM)</option>
+                        <option value="gemma3:27b">gemma3:27b — Google Gemma 3 27B Vision (~17GB VRAM)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="font-semibold block mb-1">Custom Model Tag (or Preset ID)</label>
+                      <input
+                        type="text"
+                        placeholder="qwen2.5:14b"
+                        value={integrationConfig.openWeightModel || 'qwen2.5:14b'}
+                        onChange={(e) => handleUpdateConfig({ openWeightModel: e.target.value })}
+                        className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 font-mono text-xs"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="font-semibold block mb-1">Ollama / Local vLLM Endpoint URL</label>
+                      <input
+                        type="text"
+                        placeholder="http://localhost:11434/v1"
+                        value={integrationConfig.openWeightBaseUrl || 'http://localhost:11434/v1'}
+                        onChange={(e) => handleUpdateConfig({ openWeightBaseUrl: e.target.value })}
+                        className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 font-mono text-xs"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="font-semibold block mb-1">Optional Endpoint API Key (Encrypted at Rest)</label>
+                      <input
+                        type="password"
+                        placeholder="Optional (for Groq / OpenRouter / vLLM auth)"
+                        value={integrationConfig.openWeightApiKey || ''}
+                        onChange={(e) => handleUpdateConfig({ openWeightApiKey: e.target.value })}
+                        className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Google Gemini BYOK Configuration */}
+              {integrationConfig.aiProvider === 'gemini' && (
+                <div className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-indigo-200 dark:border-indigo-900/50 space-y-3 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-zinc-800 dark:text-zinc-200">Google Gemini API Key (BYOK)</span>
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                      <Lock className="w-3 h-3" /> AES-256-GCM Encrypted at Rest
+                    </span>
+                  </div>
+                  <input
+                    type="password"
+                    placeholder="AIzaSy... (or set GEMINI_API_KEY in .env)"
+                    value={integrationConfig.geminiApiKey || ''}
+                    onChange={(e) => handleUpdateConfig({ geminiApiKey: e.target.value })}
+                    className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 font-mono text-xs"
+                  />
+                </div>
+              )}
+
+              {/* OpenAI BYOK Configuration */}
+              {integrationConfig.aiProvider === 'openai' && (
+                <div className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-indigo-200 dark:border-indigo-900/50 space-y-3 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-zinc-800 dark:text-zinc-200">OpenAI-Compatible API Key (BYOK)</span>
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                      <Lock className="w-3 h-3" /> AES-256-GCM Encrypted at Rest
+                    </span>
+                  </div>
+                  <input
+                    type="password"
+                    placeholder="sk-proj-... (or set OPENAI_API_KEY in .env)"
+                    value={integrationConfig.openaiApiKey || ''}
+                    onChange={(e) => handleUpdateConfig({ openaiApiKey: e.target.value })}
+                    className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 font-mono text-xs"
+                  />
+                </div>
+              )}
             </div>
           </div>
         )}

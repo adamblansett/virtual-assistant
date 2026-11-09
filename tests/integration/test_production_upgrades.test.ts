@@ -9,6 +9,7 @@ import { GmailOAuthManager } from '@/lib/integrations/gmail/oauth';
 import { AIProviderFactory } from '@/lib/ai/adapter';
 import { GeminiProvider } from '@/lib/ai/gemini';
 import { OpenAICompatibleProvider } from '@/lib/ai/openai';
+import { OpenWeightProvider, OPEN_WEIGHT_PRESETS } from '@/lib/ai/openweight';
 import { TelegramBotService } from '@/lib/services/telegram';
 import { ToolRegistry } from '@/lib/tools/registry';
 import { MemoryService } from '@/lib/services/memory';
@@ -347,6 +348,83 @@ describe('Production Upgrades: Security, Live APIs, Memory, Web Research & Agent
       const memPlan = await planner.createPlan('Remember that I prefer morning flights before 10am');
       expect(memPlan.actions.length).toBe(1);
       expect(memPlan.actions[0].toolName).toBe('memory_remember_fact');
+    });
+  });
+
+  describe('5. Open-Weight Model Provider (Ollama / vLLM / Qwen / Llama / Mistral / Gemma)', () => {
+    it('routes open_weight provider in AIProviderFactory and exposes all model presets', () => {
+      expect(OPEN_WEIGHT_PRESETS.some(p => p.id === 'qwen2.5:14b' && p.recommended)).toBe(true);
+      expect(OPEN_WEIGHT_PRESETS.some(p => p.id === 'qwen2.5:7b')).toBe(true);
+      expect(OPEN_WEIGHT_PRESETS.some(p => p.id === 'llama3.1:8b')).toBe(true);
+      expect(OPEN_WEIGHT_PRESETS.some(p => p.id === 'llama3.3:70b')).toBe(true);
+      expect(OPEN_WEIGHT_PRESETS.some(p => p.id === 'mistral-small:24b')).toBe(true);
+      expect(OPEN_WEIGHT_PRESETS.some(p => p.id === 'gemma3:12b')).toBe(true);
+
+      AppStorage.updateIntegrationConfig({
+        aiProvider: 'open_weight',
+        openWeightModel: 'qwen2.5:14b',
+        openWeightBaseUrl: 'http://localhost:11434/v1'
+      });
+
+      const provider = AIProviderFactory.getProvider();
+      expect(provider).toBeInstanceOf(OpenWeightProvider);
+      expect(AIProviderFactory.isLiveProviderConfigured()).toBe(true);
+    });
+
+    it('handles native tool_calls, <think> tag stripping, and fallback JSON tool extraction for open-weight models', async () => {
+      const provider = new OpenWeightProvider('gemma3:12b', 'http://localhost:11434/v1');
+
+      // Mock an open-weight response that includes <think> reasoning and a JSON tool call block
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: `<think>The user wants to create a high-priority task.</think>\nI will add that task for you.\n\`\`\`json\n{"tool": "tasks_create", "arguments": {"title": "Review Series B term sheet", "priority": "high"}}\n\`\`\``
+                }
+              }
+            ],
+            usage: { prompt_tokens: 90, completion_tokens: 40, total_tokens: 130 }
+          }),
+          { status: 200 }
+        )
+      );
+
+      const res = await provider.generateCompletion(
+        [{ role: 'user', content: 'Add high priority task to review Series B term sheet' }],
+        [{ name: 'tasks_create', description: 'Create a task', parameters: { type: 'object' } }]
+      );
+
+      expect(res.provider).toBe('open_weight');
+      expect(res.model).toBe('gemma3:12b');
+      expect(res.text).not.toContain('<think>');
+      expect(res.toolCalls).toBeDefined();
+      expect(res.toolCalls?.[0].name).toBe('tasks_create');
+      expect(res.toolCalls?.[0].arguments.title).toBe('Review Series B term sheet');
+    });
+
+    it('checks local Ollama daemon status and installed models via /api/tags', async () => {
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            models: [{ name: 'qwen2.5:14b' }, { name: 'llama3.1:8b' }]
+          }),
+          { status: 200 }
+        )
+      );
+
+      const status = await OpenWeightProvider.checkOllamaStatus('http://localhost:11434/v1');
+      expect(status.reachable).toBe(true);
+      expect(status.installedModels).toContain('qwen2.5:14b');
+      expect(status.installedModels).toContain('llama3.1:8b');
+
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'success' }), { status: 200 })
+      );
+      const pullRes = await OpenWeightProvider.pullOllamaModel('qwen2.5:14b', 'http://localhost:11434/v1');
+      expect(pullRes.success).toBe(true);
+      expect(pullRes.model).toBe('qwen2.5:14b');
     });
   });
 });
