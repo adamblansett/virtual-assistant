@@ -10,6 +10,9 @@ The Open-Source AI Virtual Assistant is architected with a **Defense-in-Depth** 
 4. **Authoritative State Verification**: The assistant never assumes an operation succeeded based solely on an optimistic API response. The state is authoritatively checked against provider records.
 5. **Secret Redaction**: Passwords, OAuth tokens, Authorization bearer headers, and API keys are automatically redacted from all audit logs and user-facing views.
 6. **Idempotency Safeguards**: Consequential actions generate deterministic idempotency keys to prevent duplicate execution during network retries or worker restarts.
+7. **AES-256-GCM Credential Encryption at Rest (`CryptoVault`)**: API keys (`geminiApiKey`, `openaiApiKey`, `telegramBotToken`, `openWeightApiKey`) and OAuth 2.0 tokens (`accessToken`, `refreshToken`) stored in `data/app_state.json` are encrypted at rest using AES-256-GCM with `crypto.scryptSync` key derivation and written via atomic temp-file replacement (`0o600` permissions).
+8. **Constant-Time API & Webhook Authentication (`SecurityAuth`)**: Enforces `crypto.timingSafeEqual` verification for API Bearer tokens (`ASSISTANT_ACCESS_TOKEN`) and Telegram webhook secret headers (`X-Telegram-Bot-Api-Secret-Token` / `TELEGRAM_WEBHOOK_SECRET`).
+9. **SSRF Protection on Web Research (`WebResearchService`)**: Validates all outbound URLs before fetching, blocking non-HTTP(S) protocols, loopback interfaces (`localhost`, `127.0.0.0/8`, `::1`), private RFC-1918 networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), and cloud metadata endpoints (`169.254.169.254`).
 
 ## Supported Versions
 

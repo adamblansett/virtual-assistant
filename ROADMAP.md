@@ -63,4 +63,13 @@ Unlike chatbot interfaces that provide suggestions or explain how a human can do
 - **Real-Time Flight Tracker**: Telemetry monitoring for delays, gate changes, and baggage carousels with automated calendar updates.
 - **Live Google Calendar API v3**: REST integration for live event creation, Google Meet conference link generation, rescheduling, and cancellation.
 - **Docker Production Deployment**: Multi-stage `Dockerfile`, `docker-compose.yml`, `.env.example`, and `/api/health` health check endpoint.
-- **117 automated unit, integration, and E2E tests passing**.
+
+### Phase 5: Open-Weight Models, Encrypted Vault, Persistent Memory & Live APIs (:white_check_mark: Completed)
+- **Open-Weight Model Provider (`OpenWeightProvider`)**: First-class local & self-hosted open-weight LLM support via Ollama (`http://localhost:11434/v1`) and vLLM with selectable presets (`qwen2.5:14b` default, `qwen2.5:7b`, `qwen3:8b`, `llama3.1:8b`, `llama3.3:70b`, `mistral-small:24b`, `gemma3:12b`, `gemma3:27b`), `<think>` reasoning tag stripping, fallback JSON tool-call extraction, and 1-click UI model pulling (`/api/integrations/ollama`).
+- **AES-256-GCM Credential Encryption at Rest (`CryptoVault`)**: All API keys (`geminiApiKey`, `openaiApiKey`, `telegramBotToken`, `openWeightApiKey`) and OAuth 2.0 `accessToken`/`refreshToken` secrets are encrypted with AES-256-GCM (`scryptSync`) before atomic disk persistence.
+- **API & Webhook Authentication (`SecurityAuth`)**: Constant-time (`crypto.timingSafeEqual`) Bearer/API-Key verification (`ASSISTANT_ACCESS_TOKEN`) and Telegram webhook signature verification (`X-Telegram-Bot-Api-Secret-Token`).
+- **Persistent Long-Term Executive Memory (`MemoryService`)**: Durable fact storage (`memory_remember_fact` / `memory_recall_facts`) automatically injected into `TaskPlanner` system prompts alongside recent conversation history.
+- **SSRF-Safe Web Research (`WebResearchService`)**: Live `web_search` and `web_read_url` tools with SSRF protection blocking private, loopback, and cloud-metadata IP ranges (`127.0.0.1`, `localhost`, `169.254.169.254`, `192.168.x.x`, `10.x.x.x`).
+- **Dynamic Multi-Step Output-to-Input Chaining**: Full JSON Schema tool export (`ToolRegistry.getToolJsonSchema`) and `{{$prev.field}}` step result interpolation in `WorkflowExecutionEngine`.
+- **Live Multimodal Audio, Vision Receipt OCR, Google Drive v3 Sync & Flight Telemetry**: Real base64 audio transcription (`/api/audio/transcribe`), Gemini Multimodal Vision receipt parsing, live Google Drive v3 file synchronization (`drive_sync_google_drive`), and live AviationStack flight status tracking.
+- **131 automated unit, integration, security, eval, and E2E tests passing across 26 test suites**.
