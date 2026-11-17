@@ -125,8 +125,11 @@ export class OmnichannelIngestionService {
     const planId = executedPlan.id;
 
     if (executedPlan.status === 'awaiting_approval') {
-      const approvalToken = `appr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      AppStorage.createMobileApproval(planId, approvalToken);
+      const existing = AppStorage.getPendingMobileApprovalByPlanId(planId);
+      const approvalToken = existing?.token || `appr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      if (!existing) {
+        AppStorage.createMobileApproval(planId, approvalToken);
+      }
 
       const replyText = `⚠️ Authorization Required:\n"${promptText}" requires your explicit approval to proceed.\n\nReply "APPROVE ${approvalToken}" or tap to authorize.`;
 

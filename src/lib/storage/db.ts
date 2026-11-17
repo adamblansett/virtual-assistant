@@ -15,6 +15,7 @@ import {
   MemoryFact
 } from '@/types';
 import { CryptoVault } from '@/lib/security/vault';
+import { SemanticSearchEngine } from '@/lib/ai/embeddings';
 
 export interface PersistedOAuthTokens {
   accessToken: string;
@@ -48,6 +49,7 @@ interface AppState {
     geminiApiKey?: string;
     openaiApiKey?: string;
     telegramBotToken?: string;
+    telegramChatId?: string;
     openWeightModel?: string;
     openWeightBaseUrl?: string;
     openWeightApiKey?: string;
@@ -699,13 +701,17 @@ export class AppStorage {
   public static searchDocuments(query: string): CloudDocument[] {
     this.initialize();
     const q = query.toLowerCase().trim();
-    if (!q) return this.listDocuments();
-    return this.listDocuments().filter(doc => 
-      doc.title.toLowerCase().includes(q) ||
-      doc.contentSnippet.toLowerCase().includes(q) ||
-      doc.tags.some(t => t.toLowerCase().includes(q)) ||
-      (doc.summary && doc.summary.toLowerCase().includes(q))
+    const docs = this.listDocuments();
+    if (!q) return docs;
+
+    const ranked = SemanticSearchEngine.rankItems(
+      q,
+      docs,
+      doc => `${doc.title} ${doc.contentSnippet} ${doc.tags.join(' ')} ${doc.summary || ''}`,
+      0.18
     );
+
+    return ranked.map(r => r.item);
   }
 
   // --- Scheduled Background Jobs ---
@@ -764,6 +770,12 @@ export class AppStorage {
     return this.state?.mobileApprovals[token] || null;
   }
 
+  public static getPendingMobileApprovalByPlanId(planId: string): { planId: string; token: string; createdAt: string; status: 'pending' | 'approved' | 'rejected' } | null {
+    this.initialize();
+    const all = Object.values(this.state?.mobileApprovals || {});
+    return all.find(a => a.planId === planId && a.status === 'pending') || null;
+  }
+
   public static resolveMobileApproval(token: string, approved: boolean): boolean {
     this.initialize();
     if (!this.state || !this.state.mobileApprovals[token]) return false;
@@ -810,11 +822,17 @@ export class AppStorage {
 
   public static searchMemories(query: string, category?: string): MemoryFact[] {
     const q = query.toLowerCase().trim();
-    return this.listMemories().filter(m => {
-      if (category && m.category !== category) return false;
-      if (!q) return true;
-      return m.fact.toLowerCase().includes(q) || m.category.toLowerCase().includes(q);
-    });
+    const candidates = this.listMemories().filter(m => !category || m.category === category);
+    if (!q) return candidates;
+
+    const ranked = SemanticSearchEngine.rankItems(
+      q,
+      candidates,
+      m => `${m.category} ${m.fact}`,
+      0.18
+    );
+
+    return ranked.map(r => r.item);
   }
 
   public static deleteMemory(id: string): boolean {

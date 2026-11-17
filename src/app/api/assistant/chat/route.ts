@@ -33,9 +33,8 @@ export async function POST(req: NextRequest) {
     // 2. Execute auto-permitted steps (e.g. preview read operations)
     const { plan: executedPlan, summary } = await WorkflowExecutionEngine.executePlan(plan, false);
 
-    const assistantText = executedPlan.status === 'awaiting_approval'
-      ? `${executedPlan.summary}\n\n${summary.explanation}`
-      : `${executedPlan.summary}\n\n${summary.explanation}`;
+    // 3. Post-Tool AI Synthesis Loop: feed real tool outputs back into AI to formulate final answer
+    const assistantText = await planner.synthesizeExecutionResponse(executedPlan, summary);
 
     AppStorage.addMessage('assistant', assistantText, executedPlan.id);
 

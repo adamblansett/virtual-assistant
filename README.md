@@ -2,7 +2,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)](https://nextjs.org/)
-[![Tests](https://img.shields.io/badge/Tests-131%2F131%20Passing-emerald.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-136%2F136%20Passing-emerald.svg)](tests/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 An **evidence-driven, privacy-first, extensible, self-hostable autonomous AI Virtual Assistant**.
@@ -35,6 +35,10 @@ For a full breakdown of what is implemented versus the long-term vision, see the
 | Capability | Status | Implementation Details |
 | :--- | :--- | :--- |
 | **Open-Weight Models (Ollama / vLLM)** | :white_check_mark: Verified | Local & self-hosted open-weight LLM adapter (`qwen2.5:14b`, `qwen2.5:7b`, `qwen3:8b`, `llama3.1:8b`, `llama3.3:70b`, `mistral-small:24b`, `gemma3:12b`, `gemma3:27b`), `<think>` tag stripping, JSON tool fallback, and 1-click UI `ollama pull` |
+| **Post-Tool AI Synthesis Loop** | :white_check_mark: Verified | Feeds actual tool outputs back into the active LLM (`TaskPlanner.synthesizeExecutionResponse`) to generate grounded natural-language executive answers |
+| **Hybrid Semantic RAG (BM25 + Vectors)** | :white_check_mark: Verified | Combines exact phrase boost, stemmed BM25 + domain synonym expansion, and cosine vector similarity (`SemanticSearchEngine`) across Memories and Drive docs |
+| **Inline Action Parameter Editing** | :white_check_mark: Verified | Edit tool arguments (e.g., email recipient, subject, body, or meeting time) inline before approving paused actions (`modifiedArguments`) |
+| **Web Session Vault Lock Screen** | :white_check_mark: Verified | `HttpOnly` cookie session login (`/api/auth/session`) and lock-screen modal when `ASSISTANT_ACCESS_TOKEN` is enabled |
 | **AES-256-GCM Credential Vault** | :white_check_mark: Verified | Encrypts stored API keys (`geminiApiKey`, `openaiApiKey`, `telegramBotToken`, `openWeightApiKey`) and OAuth tokens at rest using `scryptSync` + AES-256-GCM with atomic file writes |
 | **Persistent Long-Term Memory** | :white_check_mark: Verified | Stores & recalls executive preferences, VIP notes, and travel habits (`memory_remember_fact` / `memory_recall_facts`) and injects them into AI planning prompts |
 | **SSRF-Safe Web Research & URL Reader** | :white_check_mark: Verified | Live `web_search` and `web_read_url` tools with SSRF IP/loopback/metadata blocking and `<UNTRUSTED_WEB_PAGE>` sanitization |
@@ -87,7 +91,7 @@ For a full breakdown of what is implemented versus the long-term vision, see the
 # 1. Install dependencies
 npm install
 
-# 2. Run test suite (131 tests passing across 26 suites)
+# 2. Run test suite (136 tests passing across 26 suites)
 npm test
 
 # 3. Start development server

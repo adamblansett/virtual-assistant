@@ -92,6 +92,14 @@ export class JobManager {
     return this.jobs.get(id) || null;
   }
 
+  public static getJobByPlanId(planId: string): JobRecord | null {
+    this.initialize();
+    for (const job of this.jobs.values()) {
+      if (job.planId === planId) return job;
+    }
+    return null;
+  }
+
   public static listJobs(): JobRecord[] {
     this.initialize();
     return Array.from(this.jobs.values()).sort((a, b) =>

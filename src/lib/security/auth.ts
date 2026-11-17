@@ -16,12 +16,28 @@ export class SecurityAuth {
     return crypto.timingSafeEqual(bufA, bufB);
   }
 
+  public static getExpectedToken(): string | undefined {
+    return (
+      process.env.ASSISTANT_ACCESS_TOKEN ||
+      process.env.ASSISTANT_API_TOKEN ||
+      process.env.ASSISTANT_API_SECRET ||
+      undefined
+    );
+  }
+
+  public static verifyTokenValue(candidate: string): boolean {
+    const expected = this.getExpectedToken();
+    if (!expected) return true;
+    if (!candidate) return false;
+    return this.safeCompare(candidate, expected);
+  }
+
   /**
    * Verifies incoming API requests against ASSISTANT_ACCESS_TOKEN if configured.
    * When ASSISTANT_ACCESS_TOKEN is not set (local dev/test mode), requests are allowed.
    */
   public static verifyApiRequest(req: NextRequest): { authorized: boolean; reason?: string } {
-    const expectedToken = process.env.ASSISTANT_ACCESS_TOKEN || process.env.ASSISTANT_API_TOKEN;
+    const expectedToken = this.getExpectedToken();
     if (!expectedToken) {
       return { authorized: true };
     }

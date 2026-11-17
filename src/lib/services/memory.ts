@@ -41,10 +41,23 @@ export class MemoryService {
 
   /**
    * Formats stored executive memory facts for injection into the LLM system prompt.
+   * When contextQuery is provided, semantically relevant facts are prioritized first.
    */
-  public static formatMemoriesForPrompt(limit: number = 15): string {
-    const facts = this.listAllFacts().slice(0, limit);
-    if (facts.length === 0) return 'No stored long-term memory facts.';
+  public static formatMemoriesForPrompt(limit: number = 15, contextQuery?: string): string {
+    const allFacts = this.listAllFacts();
+    if (allFacts.length === 0) return 'No stored long-term memory facts.';
+
+    let prioritized = allFacts;
+    if (contextQuery && contextQuery.trim()) {
+      const relevant = this.recallFacts(contextQuery);
+      const relevantIds = new Set(relevant.map(f => f.id));
+      prioritized = [
+        ...relevant,
+        ...allFacts.filter(f => !relevantIds.has(f.id))
+      ];
+    }
+
+    const facts = prioritized.slice(0, limit);
     return facts.map(f => `- [${f.category.toUpperCase()}] ${f.fact}`).join('\n');
   }
 }

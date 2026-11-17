@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { WorkflowExecutionEngine } from '@/lib/engine/executor';
 import { AppStorage } from '@/lib/storage/db';
+import { SecurityAuth } from '@/lib/security/auth';
+import { TaskPlanner } from '@/lib/planner/planner';
+import { AIProviderFactory } from '@/lib/ai/adapter';
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = SecurityAuth.verifyApiRequest(req);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.reason || 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await req.json();
-    const { planId, approved, approvedActionIds } = body;
+    const { planId, approved, approvedActionIds, modifiedArguments } = body;
 
     if (!planId) {
       return NextResponse.json({ error: 'planId is required.' }, { status: 400 });
@@ -47,14 +55,21 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // User explicitly approved: resume execution
+    // User explicitly approved: resume execution (applying any user-edited action arguments)
     const { plan: executedPlan, summary } = await WorkflowExecutionEngine.executePlan(
       plan,
       true,
-      approvedActionIds || plan.actions.map(a => a.id)
+      approvedActionIds || plan.actions.map(a => a.id),
+      modifiedArguments
     );
 
-    const message = `Authorized operation executed: ${summary.explanation}`;
+    const config = AppStorage.getIntegrationConfig();
+    const preferences = AppStorage.getPreferences();
+    const aiProvider = AIProviderFactory.getProvider(config.aiProvider);
+    const planner = new TaskPlanner(aiProvider, preferences);
+    const synthesized = await planner.synthesizeExecutionResponse(executedPlan, summary);
+
+    const message = `Authorized operation executed: ${synthesized}`;
     AppStorage.addMessage('assistant', message, executedPlan.id);
 
     return NextResponse.json({

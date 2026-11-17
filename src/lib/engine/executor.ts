@@ -21,6 +21,8 @@ import { MockCalendarAdapter } from '@/lib/integrations/calendar/mock';
 import { GoogleCalendarService } from '@/lib/integrations/calendar/service';
 import { SandboxedFileService } from '@/lib/integrations/files/service';
 import { InitializedAdaptersBundle } from '@/lib/tools/registry';
+import { JobManager } from '@/lib/jobs/queue';
+import { TelegramBotService } from '@/lib/services/telegram';
 
 export class WorkflowExecutionEngine {
   private static defaultMockGmail = new MockGmailAdapter();
@@ -65,10 +67,36 @@ export class WorkflowExecutionEngine {
   public static async executePlan(
     plan: TaskPlan,
     isUserApproved: boolean = false,
-    approvedActionIds: string[] = []
+    approvedActionIds: string[] = [],
+    modifiedArguments?: Record<string, Record<string, any>>
   ): Promise<{ plan: TaskPlan; summary: ExecutionSummary }> {
     const preferences: UserPreferences = AppStorage.getPreferences();
     const adapters = this.getAdaptersBundle();
+
+    // Ensure durable job record exists for crash recovery and step checkpointing
+    let job = JobManager.getJobByPlanId(plan.id);
+    if (!job) {
+      job = JobManager.enqueueJob(plan);
+    }
+    JobManager.updateStatus(job.id, 'running');
+
+    // Apply any user-edited arguments before execution and validate against ToolRegistry schema
+    if (modifiedArguments) {
+      for (const action of plan.actions) {
+        if (modifiedArguments[action.id] && typeof modifiedArguments[action.id] === 'object') {
+          const mergedArgs = {
+            ...action.arguments,
+            ...modifiedArguments[action.id]
+          };
+          const toolDef = ToolRegistry.getTool(action.toolName);
+          if (toolDef) {
+            action.arguments = toolDef.schema.parse(mergedArgs);
+          } else {
+            action.arguments = mergedArgs;
+          }
+        }
+      }
+    }
 
     let succeeded = 0;
     let partiallySucceeded = 0;
@@ -239,6 +267,15 @@ export class WorkflowExecutionEngine {
 
         IdempotencyManager.recordSuccess(idempotencyKey, toolResult);
 
+        JobManager.recordCheckpoint(job.id, {
+          stepIndex: i,
+          actionId: action.id,
+          toolName: action.toolName,
+          status: action.status,
+          timestamp: new Date().toISOString(),
+          result: toolResult
+        });
+
         AuditLogger.logEvent({
           actionId: action.id,
           integration: action.integration,
@@ -281,6 +318,25 @@ export class WorkflowExecutionEngine {
     // Determine final plan status
     if (pausedForApproval) {
       plan.status = 'awaiting_approval';
+
+      // Issue mobile approval token if one is not already pending for this plan
+      let mobileApproval = AppStorage.getPendingMobileApprovalByPlanId(plan.id);
+      if (!mobileApproval) {
+        const token = `appr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        AppStorage.createMobileApproval(plan.id, token);
+        mobileApproval = AppStorage.getMobileApproval(token);
+      }
+
+      // If a Telegram push target chat ID is configured, automatically push interactive approval prompt
+      const targetChatId =
+        AppStorage.getIntegrationConfig()?.telegramChatId || process.env.TELEGRAM_DEFAULT_CHAT_ID;
+      if (targetChatId && mobileApproval) {
+        await TelegramBotService.sendApprovalPrompt(
+          targetChatId,
+          plan.summary || 'Consequential action awaiting confirmation',
+          mobileApproval.token
+        );
+      }
     } else if (failed > 0 && succeeded === 0) {
       plan.status = 'failed';
     } else if (failed > 0 || partiallySucceeded > 0) {
@@ -294,6 +350,19 @@ export class WorkflowExecutionEngine {
 
     plan.updatedAt = new Date().toISOString();
     AppStorage.savePlan(plan);
+
+    const firstFailedAction = plan.actions.find(a => a.status === 'failed');
+    JobManager.updateStatus(
+      job.id,
+      plan.status === 'awaiting_approval'
+        ? 'awaiting_approval'
+        : plan.status === 'failed'
+        ? 'failed'
+        : plan.status === 'succeeded' || plan.status === 'partially_succeeded'
+        ? 'succeeded'
+        : 'running',
+      firstFailedAction?.error
+    );
 
     const explanation = this.buildOutcomeExplanation(plan, succeeded, failed, skipped, verified);
 

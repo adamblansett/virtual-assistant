@@ -14,6 +14,19 @@ export class MockAIProvider implements IAIProviderAdapter {
     const lastUserMessage = [...messages].reverse().find(m => m.role === 'user')?.content || '';
     const lower = lastUserMessage.toLowerCase();
 
+    if (lastUserMessage.includes('[TOOL_EXECUTION_RESULTS]')) {
+      return {
+        text: this.synthesizeFromToolOutputs(lastUserMessage),
+        usage: {
+          promptTokens: 140,
+          completionTokens: 60,
+          totalTokens: 200
+        },
+        provider: 'mock',
+        model: 'deterministic-mock-v1'
+      };
+    }
+
     const toolCalls: AIToolCall[] = [];
     let text = '';
 
@@ -77,14 +90,17 @@ export class MockAIProvider implements IAIProviderAdapter {
         }
       });
     } else if (lower.includes('send') && lower.includes('email to')) {
+      const emailMatch = lastUserMessage.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
+      const subjectMatch = lastUserMessage.match(/(?:subject|about)\s*[:"]?\s*([^".\n]+?)(?=\s+(?:saying|body|with|that)\b|[".\n]|$)/i);
+      const bodyMatch = lastUserMessage.match(/(?:saying|body|with|that)\s*[:"]?\s*([^"]+)$/i);
       text = "I have prepared a draft and require your explicit authorization to send this email.";
       toolCalls.push({
         id: `call_${Date.now()}_send`,
         name: 'gmail_send_message',
         arguments: {
-          to: 'colleague@example.com',
-          subject: 'Requested Update',
-          body: 'Here is the update you asked for.'
+          to: emailMatch ? emailMatch[1] : 'colleague@example.com',
+          subject: subjectMatch ? subjectMatch[1].trim() : 'Requested Update',
+          body: bodyMatch ? bodyMatch[1].trim() : 'Here is the update you asked for.'
         }
       });
     } else if (lower.includes('ghostwrite') || lower.includes('draft reply') || lower.includes('in-voice') || (lower.includes('write') && lower.includes('reply'))) {
@@ -455,5 +471,61 @@ export class MockAIProvider implements IAIProviderAdapter {
       provider: 'mock',
       model: 'deterministic-mock-v1'
     };
+  }
+
+  private synthesizeFromToolOutputs(prompt: string): string {
+    try {
+      const jsonIdx = prompt.indexOf('[TOOL_EXECUTION_RESULTS]');
+      const rawJson = jsonIdx >= 0 ? prompt.slice(jsonIdx + '[TOOL_EXECUTION_RESULTS]'.length).trim() : '';
+      const actions: Array<{ toolName: string; status: string; result?: any; error?: string }> = JSON.parse(rawJson);
+      const lines: string[] = [];
+
+      for (const act of actions) {
+        const res = act.result;
+        if (act.status === 'failed') {
+          lines.push(`• ${act.toolName} failed: ${act.error || 'Unknown error'}`);
+          continue;
+        }
+        if (!res) continue;
+
+        if (act.toolName === 'gmail_search' && Array.isArray(res.messages)) {
+          const sample = res.messages.slice(0, 3).map((m: any) => `"${m.subject}" from ${m.sender}`).join('; ');
+          lines.push(`Found ${res.messages.length} email(s)${sample ? `: ${sample}` : '.'}`);
+        } else if (act.toolName === 'calendar_list_events' && Array.isArray(res)) {
+          const sample = res.slice(0, 3).map((e: any) => `"${e.summary}" (${e.startTime})`).join('; ');
+          lines.push(`Found ${res.length} upcoming calendar event(s)${sample ? `: ${sample}` : '.'}`);
+        } else if (act.toolName === 'calendar_find_free_slots' && Array.isArray(res.availableSlots)) {
+          const slots = res.availableSlots.slice(0, 3).map((s: any) => s.label || `${s.start} - ${s.end}`).join(', ');
+          lines.push(`Available meeting slots (${res.durationMinutes} min): ${slots || 'None found'}.`);
+        } else if (act.toolName === 'memory_recall_facts' && Array.isArray(res)) {
+          const facts = res.slice(0, 4).map((f: any) => `[${f.category}] ${f.fact}`).join(' | ');
+          lines.push(`Recalled ${res.length} memory fact(s): ${facts || 'None'}.`);
+        } else if (act.toolName === 'memory_remember_fact' && res.fact) {
+          lines.push(`Saved to persistent memory [${res.category}]: "${res.fact}".`);
+        } else if (act.toolName === 'web_search' && Array.isArray(res.results)) {
+          const top = res.results.slice(0, 2).map((r: any) => `${r.title} (${r.url})`).join('; ');
+          lines.push(`Web search returned ${res.results.length} result(s)${top ? `: ${top}` : '.'}`);
+        } else if (act.toolName === 'web_read_url' && res.title) {
+          lines.push(`Extracted "${res.title}" from ${res.url}: ${(res.excerpt || '').slice(0, 140)}`);
+        } else if (act.toolName === 'drive_search_documents' && Array.isArray(res)) {
+          const docs = res.slice(0, 3).map((d: any) => d.title).join(', ');
+          lines.push(`Matched ${res.length} document(s)${docs ? `: ${docs}` : '.'}`);
+        } else if (act.toolName === 'travel_track_flight_status' && res.flightNumber) {
+          lines.push(`Flight ${res.flightNumber} (${res.airline}): Status is ${res.status} (${res.departureAirport} -> ${res.arrivalAirport}, Gate ${res.gate || 'TBD'}).`);
+        } else if (act.toolName === 'assistant_daily_briefing' && res.executiveSummary) {
+          lines.push(res.executiveSummary);
+        } else if (res.summary && typeof res.summary === 'string') {
+          lines.push(res.summary);
+        }
+      }
+
+      if (lines.length > 0) {
+        return lines.join('\n');
+      }
+    } catch {
+      // Fallback below
+    }
+
+    return 'Completed requested tool operations and verified results.';
   }
 }

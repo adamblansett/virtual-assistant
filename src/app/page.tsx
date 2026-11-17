@@ -165,6 +165,15 @@ export default function AssistantApp() {
 
   const [pendingApprovalToken, setPendingApprovalToken] = useState('');
   const [approvalFeedback, setApprovalFeedback] = useState<string | null>(null);
+  const [editedActionArgs, setEditedActionArgs] = useState<Record<string, Record<string, any>>>({});
+  const [editingActionId, setEditingActionId] = useState<string | null>(null);
+
+  // Session Auth states (when ASSISTANT_ACCESS_TOKEN / ASSISTANT_API_SECRET is enabled)
+  const [authRequired, setAuthRequired] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(true);
+  const [authPassphrase, setAuthPassphrase] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // Audio Voice & TTS states
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
@@ -277,11 +286,74 @@ export default function AssistantApp() {
   }, []);
 
   useEffect(() => {
+    if (!currentPlan) {
+      setEditedActionArgs({});
+      setEditingActionId(null);
+      return;
+    }
+    const nextArgs: Record<string, Record<string, any>> = {};
+    for (const act of currentPlan.actions) {
+      nextArgs[act.id] = { ...(act.arguments || {}) };
+    }
+    setEditedActionArgs(nextArgs);
+  }, [currentPlan]);
+
+  useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [conversations]);
 
+  const handleSessionLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authPassphrase.trim()) return;
+    setIsLoggingIn(true);
+    setAuthError(null);
+    try {
+      const res = await fetch('/api/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: authPassphrase.trim() })
+      });
+      const data = await res.json();
+      if (res.ok && data.authenticated) {
+        setIsAuthenticated(true);
+        setAuthPassphrase('');
+        fetchInitialData();
+      } else {
+        setAuthError(data.error || 'Invalid access token.');
+      }
+    } catch (err: any) {
+      setAuthError(err.message || 'Login failed.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleSessionLogout = async () => {
+    try {
+      await fetch('/api/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'logout' })
+      });
+      setIsAuthenticated(false);
+    } catch {
+      // Ignore logout error
+    }
+  };
+
   const fetchInitialData = async () => {
     try {
+      // 0. Check session authentication status
+      const sessionRes = await fetch('/api/auth/session');
+      if (sessionRes.ok) {
+        const sData = await sessionRes.json();
+        setAuthRequired(Boolean(sData.authRequired));
+        setIsAuthenticated(Boolean(sData.authenticated));
+        if (sData.authRequired && !sData.authenticated) {
+          return;
+        }
+      }
+
       // 1. Fetch conversations & plans
       const chatRes = await fetch('/api/assistant/chat');
       if (chatRes.ok) {
@@ -856,19 +928,21 @@ export default function AssistantApp() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           planId: currentPlan.id,
-          approved
+          approved,
+          modifiedArguments: editedActionArgs
         })
       });
 
       if (res.ok) {
         const data = await res.json();
         setCurrentPlan(data.plan);
+        setEditingActionId(null);
         setConversations(prev => [
           ...prev,
           { 
             id: `appr_${Date.now()}`, 
             role: 'assistant', 
-            text: approved ? `Authorized execution completed: ${data.summary?.explanation}` : 'Action cancelled by user.',
+            text: approved ? (data.message || `Authorized execution completed: ${data.summary?.explanation}`) : 'Action cancelled by user.',
             planId: data.plan?.id, 
             timestamp: new Date().toISOString() 
           }
@@ -969,8 +1043,59 @@ export default function AssistantApp() {
             <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
             <span>AI: {integrationConfig.aiProvider.toUpperCase()}</span>
           </div>
+
+          {authRequired && isAuthenticated && (
+            <button
+              onClick={handleSessionLogout}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-semibold hover:bg-rose-100 transition"
+              title="Lock Session"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              <span>Lock Vault</span>
+            </button>
+          )}
         </div>
       </header>
+
+      {/* Executive Vault Lock Screen Modal when ASSISTANT_ACCESS_TOKEN is configured */}
+      {authRequired && !isAuthenticated && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/80 backdrop-blur-xs p-4">
+          <form
+            onSubmit={handleSessionLogin}
+            className="w-full max-w-md rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl p-6 space-y-4"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white">
+                <Lock className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold">Executive Security Vault Locked</h2>
+                <p className="text-xs text-zinc-500">Enter your ASSISTANT_ACCESS_TOKEN to unlock this dashboard.</p>
+              </div>
+            </div>
+            {authError && (
+              <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300">
+                {authError}
+              </div>
+            )}
+            <input
+              type="password"
+              value={authPassphrase}
+              onChange={(e) => setAuthPassphrase(e.target.value)}
+              placeholder="Access Token / Passphrase..."
+              className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              autoFocus
+            />
+            <button
+              type="submit"
+              disabled={isLoggingIn || !authPassphrase.trim()}
+              className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold transition"
+            >
+              {isLoggingIn ? 'Verifying...' : 'Unlock Executive Assistant'}
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* Navigation Tabs */}
       <div className="flex items-center px-6 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 gap-1 overflow-x-auto">
@@ -1455,7 +1580,7 @@ export default function AssistantApp() {
                               disabled={isSubmitting}
                               className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
                             >
-                              <Play className="w-3.5 h-3.5" /> Authorize & Move to Trash
+                              <Play className="w-3.5 h-3.5" /> Authorize & Execute
                             </button>
                             <button
                               onClick={() => handleApprovalDecision(false)}
@@ -1491,12 +1616,83 @@ export default function AssistantApp() {
                             </span>
                             {getRiskBadge(action.riskLevel)}
                           </div>
-                          {getStatusBadge(action.status)}
+                          <div className="flex items-center gap-2">
+                            {currentPlan.status === 'awaiting_approval' &&
+                              (action.status === 'awaiting_approval' || action.status === 'proposed') &&
+                              Object.keys(editedActionArgs[action.id] || action.arguments || {}).length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setEditingActionId(editingActionId === action.id ? null : action.id)
+                                  }
+                                  className="px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition"
+                                >
+                                  {editingActionId === action.id ? 'Done Editing' : 'Edit Parameters'}
+                                </button>
+                              )}
+                            {getStatusBadge(action.status)}
+                          </div>
                         </div>
 
                         <p className="text-xs text-zinc-600 dark:text-zinc-400 pl-7">
                           {action.expectedOutcome}
                         </p>
+
+                        {/* Inline Action Parameter Editor when paused for approval */}
+                        {currentPlan.status === 'awaiting_approval' &&
+                          editingActionId === action.id &&
+                          editedActionArgs[action.id] && (
+                            <div className="ml-7 mt-2 p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 space-y-2">
+                              <div className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300">
+                                Modify Tool Arguments Before Execution:
+                              </div>
+                              {Object.entries(editedActionArgs[action.id]).map(([argKey, argVal]) => (
+                                <div key={argKey} className="space-y-1">
+                                  <label className="block text-[10px] font-mono font-semibold text-zinc-500 uppercase">
+                                    {argKey}
+                                  </label>
+                                  {typeof argVal === 'string' && (argKey === 'body' || argKey === 'content' || argVal.length > 60) ? (
+                                    <textarea
+                                      rows={3}
+                                      value={argVal}
+                                      onChange={(e) =>
+                                        setEditedActionArgs((prev) => ({
+                                          ...prev,
+                                          [action.id]: {
+                                            ...prev[action.id],
+                                            [argKey]: e.target.value
+                                          }
+                                        }))
+                                      }
+                                      className="w-full text-xs px-2.5 py-1.5 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900"
+                                    />
+                                  ) : typeof argVal === 'string' || typeof argVal === 'number' ? (
+                                    <input
+                                      type={typeof argVal === 'number' ? 'number' : 'text'}
+                                      value={argVal}
+                                      onChange={(e) =>
+                                        setEditedActionArgs((prev) => ({
+                                          ...prev,
+                                          [action.id]: {
+                                            ...prev[action.id],
+                                            [argKey]:
+                                              typeof argVal === 'number'
+                                                ? Number(e.target.value)
+                                                : e.target.value
+                                          }
+                                        }))
+                                      }
+                                      className="w-full text-xs px-2.5 py-1.5 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900"
+                                    />
+                                  ) : (
+                                    <div className="text-[11px] font-mono text-zinc-500 truncate">
+                                      {JSON.stringify(argVal)}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
 
                         {/* Verification Status */}
                         <div className="pl-7 pt-1 flex items-center gap-3 text-[11px]">

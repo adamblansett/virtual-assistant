@@ -4,7 +4,7 @@
  * Explicitly separates planning from execution.
  */
 
-import { TaskPlan, PlannedAction, UserPreferences } from '@/types';
+import { TaskPlan, PlannedAction, UserPreferences, ExecutionSummary } from '@/types';
 import { IAIProviderAdapter, AIMessage } from '@/lib/ai/types';
 import { ToolRegistry } from '@/lib/tools/registry';
 import { PolicyEngine } from '@/lib/policy/engine';
@@ -39,7 +39,7 @@ export class TaskPlanner {
       parameters: ToolRegistry.getToolJsonSchema(t)
     }));
 
-    const memoryContext = MemoryService.formatMemoriesForPrompt();
+    const memoryContext = MemoryService.formatMemoriesForPrompt(15, sanitizedPrompt);
     const recentHistory = AppStorage.getConversationHistory()
       .slice(-6)
       .filter(m => m.text !== sanitizedPrompt)
@@ -175,19 +175,84 @@ export class TaskPlanner {
     };
   }
 
+  public static parseSendEmailPrompt(prompt: string): { to: string; subject: string; body: string } {
+    const emailMatch = prompt.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
+    const subjectMatch = prompt.match(/(?:subject|about)\s*[:"]?\s*([^".\n]+?)(?=\s+(?:saying|body|with|that)\b|[".\n]|$)/i);
+    const bodyMatch = prompt.match(/(?:saying|body|with|that)\s*[:"]?\s*([^"]+)$/i);
+
+    return {
+      to: emailMatch ? emailMatch[1] : 'recipient@example.com',
+      subject: subjectMatch ? subjectMatch[1].trim() : 'Message from AI Assistant',
+      body: bodyMatch ? bodyMatch[1].trim() : 'Here is the authorized content.'
+    };
+  }
+
+  /**
+   * Post-Tool AI Synthesis Loop:
+   * Feeds actual tool execution outputs back into the AI provider to generate a grounded,
+   * natural-language executive answer instead of returning only a generic boilerplate status.
+   */
+  public async synthesizeExecutionResponse(plan: TaskPlan, summary: ExecutionSummary): Promise<string> {
+    if (plan.status === 'awaiting_approval') {
+      return `${plan.summary}\n\n${summary.explanation}`;
+    }
+
+    if (plan.actions.length === 0) {
+      return plan.summary;
+    }
+
+    const executedActions = plan.actions.filter(
+      a => a.status === 'succeeded' || a.status === 'partially_succeeded' || a.status === 'failed'
+    );
+
+    if (executedActions.length === 0) {
+      return `${plan.summary}\n\n${summary.explanation}`;
+    }
+
+    try {
+      const payload = executedActions.map(a => ({
+        toolName: a.toolName,
+        status: a.status,
+        result: a.result,
+        error: a.error
+      }));
+
+      const synthesisRes = await this.aiProvider.generateCompletion([
+        {
+          role: 'system',
+          content: 'You are an AI Virtual Assistant. Summarize the tool execution results clearly, concisely, and accurately for the executive user. Never fabricate results that are not in the tool output.'
+        },
+        {
+          role: 'user',
+          content: `Original Request: ${plan.originalPrompt}\n\n[TOOL_EXECUTION_RESULTS]\n${JSON.stringify(payload)}`
+        }
+      ]);
+
+      const synthText = synthesisRes.text?.trim();
+      if (synthText && synthText !== plan.summary) {
+        return `${plan.summary}\n\n${synthText}\n\n${summary.explanation}`;
+      }
+    } catch {
+      // Fallback to deterministic summary below
+    }
+
+    return `${plan.summary}\n\n${summary.explanation}`;
+  }
+
   private buildSendEmailPlan(planId: string, prompt: string): TaskPlan {
+    const parsed = TaskPlanner.parseSendEmailPrompt(prompt);
     const sendAction: PlannedAction = {
       id: `act_${planId}_send`,
       integration: 'gmail',
       toolName: 'gmail_send_message',
       arguments: {
-        to: 'recipient@example.com',
-        subject: 'Message from AI Assistant',
-        body: 'Here is the authorized content.'
+        to: parsed.to,
+        subject: parsed.subject,
+        body: parsed.body
       },
       requiredPermission: 'gmail.send',
       targetResource: 'gmail:messages:send',
-      expectedOutcome: 'Send email to specified recipient.',
+      expectedOutcome: `Send email to ${parsed.to}.`,
       riskLevel: 'consequential',
       approvalRequired: true,
       status: 'awaiting_approval',
@@ -199,7 +264,7 @@ export class TaskPlanner {
       id: planId,
       userRequestId: `req_${Date.now()}`,
       originalPrompt: prompt,
-      summary: 'Send email to recipient with explicit user confirmation.',
+      summary: `Send email to ${parsed.to} with explicit user confirmation.`,
       status: 'awaiting_approval',
       actions: [sendAction],
       requiresUserConfirmation: true,

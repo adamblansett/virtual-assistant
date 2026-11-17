@@ -20,6 +20,11 @@ import { CloudDriveSyncService } from '@/lib/services/drive_sync';
 import { FlightTrackerService } from '@/lib/services/flight_tracker';
 import { TaskPlanner } from '@/lib/planner/planner';
 import { WorkflowExecutionEngine } from '@/lib/engine/executor';
+import { BackgroundSchedulerService } from '@/lib/services/scheduler';
+import { JobManager } from '@/lib/jobs/queue';
+import { SemanticSearchEngine } from '@/lib/ai/embeddings';
+import { GET as sessionGET, POST as sessionPOST } from '@/app/api/auth/session/route';
+import { POST as approvePOST } from '@/app/api/assistant/approve/route';
 import { TaskPlan } from '@/types';
 
 describe('Production Upgrades: Security, Live APIs, Memory, Web Research & Agent Loop', () => {
@@ -31,10 +36,13 @@ describe('Production Upgrades: Security, Live APIs, Memory, Web Research & Agent
 
   afterEach(() => {
     delete process.env.ASSISTANT_API_TOKEN;
+    delete process.env.ASSISTANT_ACCESS_TOKEN;
     delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    delete process.env.TELEGRAM_DEFAULT_CHAT_ID;
     delete process.env.AVIATIONSTACK_API_KEY;
     delete process.env.GOOGLE_CLIENT_ID;
     delete process.env.GOOGLE_CLIENT_SECRET;
+    BackgroundSchedulerService.stopDaemon();
     vi.restoreAllMocks();
   });
 
@@ -425,6 +433,170 @@ describe('Production Upgrades: Security, Live APIs, Memory, Web Research & Agent
       const pullRes = await OpenWeightProvider.pullOllamaModel('qwen2.5:14b', 'http://localhost:11434/v1');
       expect(pullRes.success).toBe(true);
       expect(pullRes.model).toBe('qwen2.5:14b');
+    });
+  });
+
+  describe('6. Post-Tool AI Synthesis, Cron Daemon, Session Auth, Semantic RAG & Inline Approval Edits', () => {
+    it('extracts real recipient, subject, and body for send-email plans and synthesizes post-tool outputs', async () => {
+      const planner = new TaskPlanner(AIProviderFactory.getProvider('mock'), AppStorage.getPreferences());
+
+      const sendPlan = await planner.createPlan(
+        'Send an email to cfo@company.com about Q4 Forecast saying Please review the updated board numbers'
+      );
+      expect(sendPlan.actions.length).toBe(1);
+      expect(sendPlan.actions[0].toolName).toBe('gmail_send_message');
+      expect(sendPlan.actions[0].arguments.to).toBe('cfo@company.com');
+      expect(sendPlan.actions[0].arguments.subject).toBe('Q4 Forecast');
+      expect(sendPlan.actions[0].arguments.body).toBe('Please review the updated board numbers');
+
+      const searchPlan = await planner.createPlan('Search for emails from Acme');
+      const { plan: executedPlan, summary } = await WorkflowExecutionEngine.executePlan(searchPlan, false);
+      const synthesized = await planner.synthesizeExecutionResponse(executedPlan, summary);
+
+      expect(synthesized).toContain('Found');
+      expect(synthesized).toContain('email(s)');
+      expect(synthesized).toContain(summary.explanation);
+    });
+
+    it('computes cron schedules, evaluates due jobs, dispatches live notifications, and manages background daemon', async () => {
+      TelegramBotService.clearOutboundLog();
+      AppStorage.updateIntegrationConfig({ telegramChatId: 'exec_chat_999' });
+
+      const baseDate = new Date(2026, 9, 15, 6, 30, 0); // 06:30 local
+      const nextMorning = new Date(BackgroundSchedulerService.computeNextRunFromCron('0 7 * * *', baseDate));
+      expect(nextMorning.getHours()).toBe(7);
+      expect(nextMorning.getMinutes()).toBe(0);
+
+      // Set job_morning as due in the past and other jobs in the future
+      const jobs = AppStorage.listScheduledJobs();
+      for (const j of jobs) {
+        j.nextRunAt =
+          j.id === 'job_morning'
+            ? new Date(Date.now() - 60000).toISOString()
+            : new Date(Date.now() + 3600000).toISOString();
+        AppStorage.saveScheduledJob(j);
+      }
+
+      const dueEval = await BackgroundSchedulerService.evaluateAndRunDueJobs({ onlyDue: true });
+      expect(dueEval.executedJobs.length).toBe(1);
+      expect(dueEval.executedJobs[0].job.id).toBe('job_morning');
+      expect(dueEval.dispatchedNotifications).toBeGreaterThan(0);
+
+      // Verify Telegram notification was actually dispatched
+      const outbound = TelegramBotService.getOutboundLog();
+      expect(outbound.some(m => m.chatId === 'exec_chat_999')).toBe(true);
+
+      // Start & stop daemon
+      BackgroundSchedulerService.startDaemon(45000);
+      expect(BackgroundSchedulerService.getDaemonStatus().running).toBe(true);
+      expect(BackgroundSchedulerService.getDaemonStatus().intervalMs).toBe(45000);
+      BackgroundSchedulerService.stopDaemon();
+      expect(BackgroundSchedulerService.getDaemonStatus().running).toBe(false);
+    });
+
+    it('authenticates web session cookies via /api/auth/session when ASSISTANT_ACCESS_TOKEN is set', async () => {
+      process.env.ASSISTANT_ACCESS_TOKEN = 'vault-passphrase-2026';
+
+      const getUnauth = await sessionGET(new NextRequest('http://localhost:3000/api/auth/session'));
+      const unauthData = await getUnauth.json();
+      expect(unauthData.authRequired).toBe(true);
+      expect(unauthData.authenticated).toBe(false);
+
+      const badLogin = await sessionPOST(
+        new NextRequest('http://localhost:3000/api/auth/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: 'wrong-passphrase' })
+        })
+      );
+      expect(badLogin.status).toBe(401);
+
+      const goodLogin = await sessionPOST(
+        new NextRequest('http://localhost:3000/api/auth/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: 'vault-passphrase-2026' })
+        })
+      );
+      expect(goodLogin.status).toBe(200);
+      expect(goodLogin.cookies.get('va_session')?.value).toBe('vault-passphrase-2026');
+
+      const logoutRes = await sessionPOST(
+        new NextRequest('http://localhost:3000/api/auth/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'logout' })
+        })
+      );
+      expect(logoutRes.status).toBe(200);
+      expect(logoutRes.cookies.get('va_session')?.value).toBe('');
+    });
+
+    it('performs hybrid BM25 + synonym + vector semantic search across memories and Drive documents', () => {
+      // Query uses "airplane seat" even though memory text says "Prefers aisle seats on Delta Air Lines..."
+      const recalled = MemoryService.recallFacts('airplane seat');
+      expect(recalled.length).toBeGreaterThanOrEqual(1);
+      expect(recalled[0].fact).toContain('aisle seats');
+
+      // Query uses multi-word natural language over Cloud Drive documents
+      const docs = CloudDriveSyncService.searchDocuments('confidentiality legal agreement');
+      expect(docs.length).toBeGreaterThanOrEqual(1);
+
+      // Verify deterministic vector normalization & cosine similarity
+      const v1 = SemanticSearchEngine.computeDeterministicVector('airline flight seat preference');
+      const v2 = SemanticSearchEngine.computeDeterministicVector('airplane aisle seat delta flight');
+      expect(SemanticSearchEngine.cosineSimilarity(v1, v2)).toBeGreaterThan(0.35);
+    });
+
+    it('applies inline modifiedArguments on approval, pushes mobile approval token, and records JobManager checkpoints', async () => {
+      JobManager.clear();
+      TelegramBotService.clearOutboundLog();
+      AppStorage.updateIntegrationConfig({ telegramChatId: 'exec_mobile_777' });
+
+      const planner = new TaskPlanner(AIProviderFactory.getProvider('mock'), AppStorage.getPreferences());
+      const plan = await planner.createPlan('Send an email to draft@example.com about Initial Draft');
+
+      // Initial run pauses in awaiting_approval, creates mobile token, and pushes to Telegram
+      const paused = await WorkflowExecutionEngine.executePlan(plan, false);
+      expect(paused.plan.status).toBe('awaiting_approval');
+
+      const pendingToken = AppStorage.getPendingMobileApprovalByPlanId(plan.id);
+      expect(pendingToken).toBeDefined();
+      expect(TelegramBotService.getOutboundLog().some(m => m.chatId === 'exec_mobile_777')).toBe(true);
+
+      const actionId = paused.plan.actions[0].id;
+
+      // Approve via /api/assistant/approve with inline modifiedArguments override
+      const approveReq = new NextRequest('http://localhost:3000/api/assistant/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          planId: plan.id,
+          approved: true,
+          modifiedArguments: {
+            [actionId]: {
+              to: 'board-chair@company.com',
+              subject: 'Edited Final Board Update',
+              body: 'Approved and edited inline before sending.'
+            }
+          }
+        })
+      });
+
+      const approveRes = await approvePOST(approveReq);
+      expect(approveRes.status).toBe(200);
+      const approveData = await approveRes.json();
+
+      expect(approveData.plan.status).toBe('succeeded');
+      expect(approveData.plan.actions[0].arguments.to).toBe('board-chair@company.com');
+      expect(approveData.plan.actions[0].arguments.subject).toBe('Edited Final Board Update');
+
+      // Verify JobManager recorded durable checkpoints and succeeded status
+      const job = JobManager.getJobByPlanId(plan.id);
+      expect(job).toBeDefined();
+      expect(job?.status).toBe('succeeded');
+      expect(job?.checkpoints.length).toBe(1);
+      expect(job?.checkpoints[0].actionId).toBe(actionId);
     });
   });
 });
