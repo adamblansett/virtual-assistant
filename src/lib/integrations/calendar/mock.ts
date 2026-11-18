@@ -122,7 +122,7 @@ export class MockCalendarAdapter implements IIntegrationAdapter {
   public async createEvent(args: CreateEventArgs): Promise<CalendarEvent> {
     if (!this.connected) throw new Error('Calendar integration is not connected.');
 
-    const id = `cal_event_${Date.now()}`;
+    const id = `cal_event_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const newEvent: CalendarEvent = {
       id,
       summary: args.summary,

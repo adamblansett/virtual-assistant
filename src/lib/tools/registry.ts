@@ -650,6 +650,16 @@ export class ToolRegistry {
       requiredPermission: 'files.read',
       approvalRequiredByDefault: false
     });
+
+    this.registerTool({
+      name: 'assistant_detect_conflicts',
+      integration: 'assistant',
+      description: 'Proactively scans calendar, travel itineraries, expenses, and VIP contacts for overlaps, buffer violations, location mismatches, and duplicate charges.',
+      schema: z.object({}),
+      riskLevel: 'read',
+      requiredPermission: 'assistant.read',
+      approvalRequiredByDefault: false
+    });
   }
 
   public static registerTool(tool: ToolDefinition): void {
@@ -1005,6 +1015,11 @@ export class ToolRegistry {
       case 'drive_sync_google_drive': {
         const args = DriveSyncDocumentsArgsSchema.parse(rawArgs);
         return await CloudDriveSyncService.syncFromGoogleDrive(args.maxResults);
+      }
+
+      case 'assistant_detect_conflicts': {
+        const { ConflictDetectorService } = await import('@/lib/services/conflict_detector');
+        return await ConflictDetectorService.scanAllConflicts();
       }
 
       default: {

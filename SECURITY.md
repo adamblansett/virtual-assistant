@@ -16,6 +16,7 @@ The Open-Source AI Virtual Assistant is architected with a **Defense-in-Depth** 
 10. **Strict Zod Schema Validation on Inline Approval Edits**: Any user-edited action parameters (`modifiedArguments`) submitted at the approval gate are strictly validated through the tool's registered Zod schema (`ToolRegistry.getTool(toolName).schema.parse(...)`) prior to execution.
 11. **Wire-Level Secret Masking & Sliding-Window Rate Limiting (`SecurityAuth`)**: `GET /api/integrations` masks all configured API keys (`••••••••abcd`) so raw secrets are never sent to browser clients, `AppStorage.updateIntegrationConfig` ignores masked placeholders on update, and `SecurityAuth.checkRateLimit` enforces per-client sliding-window request rate limits.
 12. **Slack & WhatsApp HMAC-SHA256 Webhook Verification & MCP Risk Tiering**: Verifies Slack `x-slack-signature` (`v0:timestamp:body` with `SLACK_SIGNING_SECRET`) and Meta WhatsApp `x-hub-signature-256` (`WHATSAPP_APP_SECRET`) using constant-time comparison, and automatically classifies dynamically discovered MCP tools into `read`, `reversible_write`, and `consequential` approval tiers.
+13. **HMAC-SHA256 Signed Outbound Webhook Bus (`OutboundWebhookBus`)**: Signs outbound automation payloads with `X-Assistant-Signature-256: sha256=<hmac_sha256>` so downstream receivers (n8n, Zapier, Make, enterprise endpoints) can cryptographically verify event authenticity, while masking subscription secrets (`••••••••2026`) in API responses.
 
 ## Supported Versions
 

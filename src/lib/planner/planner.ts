@@ -11,6 +11,7 @@ import { PolicyEngine } from '@/lib/policy/engine';
 import { SecuritySanitizer } from '@/lib/security/sanitizer';
 import { MemoryService } from '@/lib/services/memory';
 import { AppStorage } from '@/lib/storage/db';
+import { SpecialistCoordinatorService } from './specialists';
 
 export class TaskPlanner {
   constructor(
@@ -18,10 +19,19 @@ export class TaskPlanner {
     private preferences: UserPreferences
   ) {}
 
-  public async createPlan(userPrompt: string): Promise<TaskPlan> {
+  public async createPlan(userPrompt: string, allowMultiAgent: boolean = true): Promise<TaskPlan> {
     const planId = `plan_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const sanitizedPrompt = SecuritySanitizer.sanitizeString(userPrompt);
     const lower = sanitizedPrompt.toLowerCase();
+
+    if (allowMultiAgent && SpecialistCoordinatorService.isCompoundInstruction(sanitizedPrompt)) {
+      const { plan } = await SpecialistCoordinatorService.createMultiAgentPlan(
+        sanitizedPrompt,
+        this.aiProvider,
+        this.preferences
+      );
+      return plan;
+    }
 
     // Check for explicit multi-step intent patterns (e.g. Email Cleanup)
     if (lower.includes('clean') && (lower.includes('older than') || lower.includes('5 year') || lower.includes('five year'))) {

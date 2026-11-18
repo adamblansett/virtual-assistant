@@ -88,4 +88,10 @@ Unlike chatbot interfaces that provide suggestions or explain how a human can do
 - **Auto-Learning Memory Extraction (`MemoryService.extractAndLearnFromText`)**: Automatically extracts and deduplicates implicit travel, scheduling, relationship, and executive preferences from natural conversation.
 - **Inbound Slack Events (`/api/webhooks/slack`) & WhatsApp Cloud API (`/api/webhooks/whatsapp`) Webhooks**: Complete challenge handshakes, HMAC-SHA256 signature verification (`x-slack-signature`, `x-hub-signature-256`), inbound message routing, and interactive approval button callbacks.
 - **Pluggable WAL-Mode SQLite Storage Backend (`PluggableSQLiteAdapter`)**: ACID transactional persistence using Node.js 22+ built-in `node:sqlite` (`DatabaseSync`) with indexed relational memory queries (`ASSISTANT_STORAGE_BACKEND=sqlite`).
-- **146 automated unit, integration, security, eval, and E2E tests passing across 26 test suites**.
+
+### Phase 8: Conflict Radar, Multi-Agent Specialist Coordinator, Outbound Webhook Bus & Accounting Exports (:white_check_mark: Completed)
+- **Proactive Conflict & Anomaly Detector (`ConflictDetectorService` & `/api/assistant/conflicts`)**: Automatically scans for double-booked calendar overlaps, 15-minute buffer rule violations, travel-vs-meeting city mismatches, duplicate expense charges, anomalous spend spikes, and VIP follow-up drift.
+- **Multi-Agent Specialist Coordinator (`SpecialistCoordinatorService`)**: Decomposes compound multi-domain executive requests across specialized sub-agents (`CommsSpecialist`, `CalendarTravelSpecialist`, `FinanceLegalSpecialist`, `ResearchMemorySpecialist`) and merges their actions into a unified `TaskPlan`.
+- **Outbound Event Webhook Bus (`OutboundWebhookBus` & `/api/webhooks/outbound`)**: Emits HMAC-SHA256 signed lifecycle events (`plan.succeeded`, `approval.requested`, `routine.completed`, `conflict.detected`, `expense.reconciled`) to external automation pipelines (n8n, Zapier, Make, Home Assistant).
+- **Live SSE UI Streaming, `Cmd+K` Command Palette & Accounting CSV/Markdown Exports**: Real-time `ReadableStream` SSE consumer in `page.tsx`, keyboard-driven `Cmd+K` / `Ctrl+K` Executive Command Palette, and RFC 4180 CSV + Markdown expense exports (`/api/expenses/export`).
+- **150 automated unit, integration, security, eval, and E2E tests passing across 26 test suites**.

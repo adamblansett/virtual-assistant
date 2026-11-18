@@ -168,6 +168,9 @@ export default function AssistantApp() {
   const [newMcpId, setNewMcpId] = useState('');
   const [newMcpName, setNewMcpName] = useState('');
   const [newMcpUrl, setNewMcpUrl] = useState('');
+  const [conflicts, setConflicts] = useState<any[]>([]);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [commandPaletteQuery, setCommandPaletteQuery] = useState('');
 
   const [omniChannel, setOmniChannel] = useState<'telegram' | 'whatsapp' | 'slack' | 'voice_note'>('telegram');
   const [omniInputText, setOmniInputText] = useState('');
@@ -292,9 +295,20 @@ export default function AssistantApp() {
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Initial load
+  // Initial load & Cmd+K / Ctrl+K Command Palette shortcut
   useEffect(() => {
     fetchInitialData();
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen(prev => !prev);
+      } else if (e.key === 'Escape') {
+        setIsCommandPaletteOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
   useEffect(() => {
@@ -512,6 +526,13 @@ export default function AssistantApp() {
       if (mcpRes.ok) {
         const mcpData = await mcpRes.json();
         setMcpServers(mcpData.servers || []);
+      }
+
+      // 21. Fetch proactive conflicts & anomalies
+      const confRes = await fetch('/api/assistant/conflicts');
+      if (confRes.ok) {
+        const confData = await confRes.json();
+        setConflicts(confData.conflicts || []);
       }
     } catch (err) {
       console.error('Failed to load initial data:', err);
@@ -1089,39 +1110,103 @@ export default function AssistantApp() {
     setIsSubmitting(true);
     if (!customPrompt) setInputMessage('');
 
-    // Optimistically update conversation
+    const streamMsgId = `resp_${Date.now()}`;
     setConversations(prev => [
       ...prev,
-      { id: `temp_${Date.now()}`, role: 'user', text: textToSend, timestamp: new Date().toISOString() }
+      { id: `temp_${Date.now()}`, role: 'user', text: textToSend, timestamp: new Date().toISOString() },
+      { id: streamMsgId, role: 'assistant', text: 'Planning & executing...', timestamp: new Date().toISOString() }
     ]);
 
     try {
-      const res = await fetch('/api/assistant/chat', {
+      const res = await fetch('/api/assistant/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: textToSend })
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        setCurrentPlan(data.plan);
-        setConversations(prev => [
-          ...prev,
-          { id: `resp_${Date.now()}`, role: 'assistant', text: data.assistantMessage, planId: data.plan?.id, timestamp: new Date().toISOString() }
-        ]);
+      if (res.ok && res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const blocks = buffer.split('\n\n');
+          buffer = blocks.pop() || '';
+
+          for (const block of blocks) {
+            const eventMatch = block.match(/^event:\s*(.+)$/m);
+            const dataMatch = block.match(/^data:\s*(.+)$/m);
+            if (!eventMatch || !dataMatch) continue;
+
+            const evtType = eventMatch[1].trim();
+            try {
+              const payload = JSON.parse(dataMatch[1]);
+              if (
+                evtType === 'plan_created' ||
+                evtType === 'step_started' ||
+                evtType === 'step_completed' ||
+                evtType === 'plan_paused' ||
+                evtType === 'plan_completed'
+              ) {
+                if (payload.plan) {
+                  setCurrentPlan(payload.plan);
+                }
+              } else if (evtType === 'token' && typeof payload.text === 'string') {
+                setConversations(prev =>
+                  prev.map(m => (m.id === streamMsgId ? { ...m, text: payload.text } : m))
+                );
+              } else if (evtType === 'done') {
+                if (payload.plan) setCurrentPlan(payload.plan);
+                setConversations(prev =>
+                  prev.map(m =>
+                    m.id === streamMsgId
+                      ? { ...m, text: payload.assistantMessage, planId: payload.plan?.id }
+                      : m
+                  )
+                );
+              } else if (evtType === 'error') {
+                setConversations(prev =>
+                  prev.map(m =>
+                    m.id === streamMsgId ? { ...m, text: `Error: ${payload.error}` } : m
+                  )
+                );
+              }
+            } catch {
+              // Ignore malformed chunk
+            }
+          }
+        }
         fetchInitialData();
       } else {
-        const errData = await res.json();
-        setConversations(prev => [
-          ...prev,
-          { id: `err_${Date.now()}`, role: 'assistant', text: `Error: ${errData.error || 'Failed to process request.'}`, timestamp: new Date().toISOString() }
-        ]);
+        // Fallback to non-streaming JSON endpoint
+        const fallbackRes = await fetch('/api/assistant/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: textToSend })
+        });
+        if (fallbackRes.ok) {
+          const data = await fallbackRes.json();
+          setCurrentPlan(data.plan);
+          setConversations(prev =>
+            prev.map(m =>
+              m.id === streamMsgId
+                ? { ...m, text: data.assistantMessage, planId: data.plan?.id }
+                : m
+            )
+          );
+          fetchInitialData();
+        }
       }
     } catch (err: any) {
-      setConversations(prev => [
-        ...prev,
-        { id: `err_${Date.now()}`, role: 'assistant', text: `Connection error: ${err.message}`, timestamp: new Date().toISOString() }
-      ]);
+      setConversations(prev =>
+        prev.map(m =>
+          m.id === streamMsgId ? { ...m, text: `Connection error: ${err.message}` } : m
+        )
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -1253,6 +1338,16 @@ export default function AssistantApp() {
             <span>AI: {integrationConfig.aiProvider.toUpperCase()}</span>
           </div>
 
+          <button
+            type="button"
+            onClick={() => setIsCommandPaletteOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs font-semibold hover:bg-indigo-100 transition"
+            title="Open Executive Command Palette (Cmd+K / Ctrl+K)"
+          >
+            <Search className="w-3.5 h-3.5" />
+            <span>Cmd+K</span>
+          </button>
+
           {authRequired && isAuthenticated && (
             <button
               onClick={handleSessionLogout}
@@ -1265,6 +1360,65 @@ export default function AssistantApp() {
           )}
         </div>
       </header>
+
+      {/* Cmd+K / Ctrl+K Executive Command Palette Modal */}
+      {isCommandPaletteOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-zinc-950/60 backdrop-blur-xs pt-20 p-4"
+          onClick={() => setIsCommandPaletteOpen(false)}
+        >
+          <div
+            className="w-full max-w-xl rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-3.5 border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-2.5">
+              <Search className="w-4 h-4 text-indigo-600" />
+              <input
+                type="text"
+                autoFocus
+                value={commandPaletteQuery}
+                onChange={(e) => setCommandPaletteQuery(e.target.value)}
+                placeholder="Type a command, jump to a tab, or run an assistant action..."
+                className="flex-1 text-xs bg-transparent focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setIsCommandPaletteOpen(false)}
+                className="px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-[10px] font-mono text-zinc-500"
+              >
+                ESC
+              </button>
+            </div>
+            <div className="max-h-80 overflow-y-auto p-2 space-y-1 text-xs">
+              {[
+                { label: 'Run Morning Briefing Routine', action: () => { setActiveTab('briefing'); handleTriggerRoutine('morning_briefing'); } },
+                { label: 'Scan for Schedule, Travel & Expense Conflicts', action: () => { setActiveTab('chat'); handleSendMessage('Scan my calendar, travel, and expenses for conflicts and anomalies'); } },
+                { label: 'Multi-Agent: Check Flight DL 428 and then Find 30m Slot Tomorrow', action: () => { setActiveTab('chat'); handleSendMessage('Check my flight status for DL 428 and then find a 30 minute open slot tomorrow'); } },
+                { label: 'Jump to Integrations & Open-Weight Ollama Setup', action: () => setActiveTab('integrations') },
+                { label: 'Jump to Executive Memory & State Backup', action: () => setActiveTab('memory') },
+                { label: 'Export Expenses as Accounting CSV', action: () => { const a = document.createElement('a'); a.href = '/api/expenses/export'; a.download = 'executive_expenses.csv'; a.click(); } },
+                { label: 'Export Calendar & Travel as .ics Feed', action: () => { const a = document.createElement('a'); a.href = '/api/calendar/ics'; a.download = 'executive_calendar.ics'; a.click(); } }
+              ]
+                .filter(item => !commandPaletteQuery.trim() || item.label.toLowerCase().includes(commandPaletteQuery.toLowerCase()))
+                .map((item, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      item.action();
+                      setIsCommandPaletteOpen(false);
+                      setCommandPaletteQuery('');
+                    }}
+                    className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-950/60 flex items-center justify-between transition"
+                  >
+                    <span className="font-medium">{item.label}</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
+                  </button>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Executive Vault Lock Screen Modal when ASSISTANT_ACCESS_TOKEN is configured */}
       {authRequired && !isAuthenticated && (
@@ -1994,6 +2148,41 @@ export default function AssistantApp() {
               </div>
             )}
 
+            {/* Proactive Conflict & Anomaly Radar */}
+            {conflicts.length > 0 && (
+              <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-600" />
+                    Proactive Conflict & Anomaly Radar ({conflicts.length})
+                  </h3>
+                </div>
+                <div className="space-y-2">
+                  {conflicts.slice(0, 4).map((conf: any) => (
+                    <div
+                      key={conf.id}
+                      className="p-3 rounded-xl bg-white dark:bg-zinc-900 border border-amber-200/70 dark:border-amber-800/60 flex flex-wrap items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="font-bold text-zinc-800 dark:text-zinc-200">{conf.title}</div>
+                        <div className="text-[11px] text-zinc-500">{conf.description}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('chat');
+                          handleSendMessage(conf.suggestedPrompt);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-semibold transition shrink-0"
+                      >
+                        Resolve via Assistant
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* KPI Metrics Grid */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs">
@@ -2433,16 +2622,32 @@ export default function AssistantApp() {
         {/* Expenses & Financial Records Tab */}
         {activeTab === 'expenses' && (
           <div className="p-8 max-w-5xl mx-auto space-y-6 overflow-y-auto h-full">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <h2 className="text-lg font-bold">Expense Tracking & Financial Records</h2>
                 <p className="text-xs text-zinc-500">Corporate spend aggregation, receipt extraction, and categorized expense records.</p>
               </div>
-              <div className="text-right">
-                <span className="text-xs text-zinc-400 block">Total Spend</span>
-                <span className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
-                  ${expenseSummary?.totalAmount ? expenseSummary.totalAmount.toFixed(2) : '0.00'} USD
-                </span>
+              <div className="flex items-center gap-3">
+                <a
+                  href="/api/expenses/export?format=csv"
+                  download="executive_expenses.csv"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
+                >
+                  <FileCheck className="w-3.5 h-3.5 text-emerald-600" /> Export CSV Ledger
+                </a>
+                <a
+                  href="/api/expenses/export?format=markdown"
+                  download="executive_expense_report.md"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
+                >
+                  <FileText className="w-3.5 h-3.5 text-indigo-600" /> Export Markdown Report
+                </a>
+                <div className="text-right pl-2 border-l border-zinc-200 dark:border-zinc-800">
+                  <span className="text-xs text-zinc-400 block">Total Spend</span>
+                  <span className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
+                    ${expenseSummary?.totalAmount ? expenseSummary.totalAmount.toFixed(2) : '0.00'} USD
+                  </span>
+                </div>
               </div>
             </div>
 

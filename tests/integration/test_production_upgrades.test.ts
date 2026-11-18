@@ -36,6 +36,12 @@ import { GET as mcpGET, POST as mcpPOST } from '@/app/api/integrations/mcp/route
 import { POST as slackPOST } from '@/app/api/webhooks/slack/route';
 import { GET as whatsappGET, POST as whatsappPOST } from '@/app/api/webhooks/whatsapp/route';
 import { PluggableSQLiteAdapter } from '@/lib/storage/sqlite_adapter';
+import { ConflictDetectorService } from '@/lib/services/conflict_detector';
+import { GET as conflictsGET } from '@/app/api/assistant/conflicts/route';
+import { SpecialistCoordinatorService } from '@/lib/planner/specialists';
+import { OutboundWebhookBus } from '@/lib/services/webhook_bus';
+import { GET as outboundGET, POST as outboundPOST } from '@/app/api/webhooks/outbound/route';
+import { GET as expensesExportGET } from '@/app/api/expenses/export/route';
 import { TaskPlan } from '@/types';
 
 describe('Production Upgrades: Security, Live APIs, Memory, Web Research & Agent Loop', () => {
@@ -45,6 +51,7 @@ describe('Production Upgrades: Security, Live APIs, Memory, Web Research & Agent
     SecurityAuth.resetRateLimits();
     OmnichannelIngestionService.clearOutboundLog();
     MCPClientService.reset();
+    OutboundWebhookBus.clear();
     vi.restoreAllMocks();
   });
 
@@ -988,6 +995,148 @@ describe('Production Upgrades: Security, Live APIs, Memory, Web Research & Agent
       const sqlRows = PluggableSQLiteAdapter.queryMemoriesSql('travel');
       expect(sqlRows.length).toBe(1);
       expect(sqlRows[0].id).toBe('mem_sql_1');
+    });
+  });
+
+  describe('9. Phase 8: Conflict Detector, Multi-Agent Specialist Coordinator, Outbound Webhook Bus & Accounting CSV/Markdown Export', () => {
+    it('proactively detects overlapping calendar events, duplicate expense charges, and VIP cadences via /api/assistant/conflicts', async () => {
+      const adapters = WorkflowExecutionEngine.getAdaptersBundle();
+      const baseTime = new Date(Date.now() + 2 * 3600000);
+      const overlapStart = new Date(baseTime.getTime() + 15 * 60000);
+      const overlapEnd = new Date(baseTime.getTime() + 45 * 60000);
+
+      await adapters.calendar.createEvent({
+        summary: 'Board Strategy Call',
+        startTime: baseTime.toISOString(),
+        endTime: new Date(baseTime.getTime() + 30 * 60000).toISOString(),
+        timeZone: 'America/New_York',
+        attendees: []
+      });
+      await adapters.calendar.createEvent({
+        summary: 'Overlapping Investor Sync',
+        startTime: overlapStart.toISOString(),
+        endTime: overlapEnd.toISOString(),
+        timeZone: 'America/New_York',
+        attendees: []
+      });
+
+      // Seed duplicate expense on the same date
+      const todayDate = new Date().toISOString().split('T')[0];
+      AppStorage.saveExpense({
+        id: 'exp_dup_1',
+        merchant: 'Delta Air Lines',
+        amount: 550,
+        currency: 'USD',
+        date: todayDate,
+        category: 'travel',
+        source: 'Card Feed',
+        verified: true
+      });
+      AppStorage.saveExpense({
+        id: 'exp_dup_2',
+        merchant: 'Delta Air Lines',
+        amount: 550,
+        currency: 'USD',
+        date: todayDate,
+        category: 'travel',
+        source: 'Duplicate Receipt',
+        verified: true
+      });
+
+      const res = await conflictsGET(new NextRequest('http://localhost:3000/api/assistant/conflicts'));
+      expect(res.status).toBe(200);
+      const report = await res.json();
+
+      expect(report.totalConflicts).toBeGreaterThanOrEqual(2);
+      expect(report.conflicts.some((c: any) => c.type === 'calendar_overlap')).toBe(true);
+      expect(report.conflicts.some((c: any) => c.type === 'duplicate_expense')).toBe(true);
+
+      // Verify assistant_detect_conflicts tool is also executable via ToolRegistry
+      const toolReport = await ConflictDetectorService.scanAllConflicts();
+      expect(toolReport.totalConflicts).toBeGreaterThanOrEqual(2);
+    });
+
+    it('decomposes compound multi-domain requests across specialist sub-agents and merges them into a unified TaskPlan', async () => {
+      const compoundPrompt =
+        'Track flight status for DL 428 and then find a 30 minute open slot on my calendar tomorrow and then summarize my expenses';
+
+      expect(SpecialistCoordinatorService.isCompoundInstruction(compoundPrompt)).toBe(true);
+
+      const planner = new TaskPlanner(AIProviderFactory.getProvider('mock'), AppStorage.getPreferences());
+      const plan = await planner.createPlan(compoundPrompt);
+
+      expect(plan.summary).toContain('Multi-Agent Specialist Plan');
+      expect(plan.actions.length).toBe(3);
+      expect(plan.actions[0].toolName).toBe('travel_track_flight_status');
+      expect(plan.actions[1].toolName).toBe('calendar_find_free_slots');
+      expect(plan.actions[2].toolName).toBe('finance_summarize_expenses');
+
+      const { plan: executedPlan, summary } = await WorkflowExecutionEngine.executePlan(plan, false);
+      expect(executedPlan.status).toBe('succeeded');
+      expect(summary.succeeded).toBe(3);
+    });
+
+    it('registers outbound webhook subscriptions, signs payloads with HMAC-SHA256, and logs deliveries via /api/webhooks/outbound', async () => {
+      const regRes = await outboundPOST(
+        new NextRequest('http://localhost:3000/api/webhooks/outbound', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'Enterprise n8n Pipeline',
+            targetUrl: 'https://n8n.example.com/webhook/assistant',
+            events: ['plan.succeeded', 'conflict.detected'],
+            secret: 'wh_signing_secret_2026'
+          })
+        })
+      );
+      expect(regRes.status).toBe(200);
+      const regData = await regRes.json();
+      expect(regData.subscription.secret).toBe('••••••••2026');
+
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify({ received: true }), { status: 200 })
+      );
+
+      const emitRes = await outboundPOST(
+        new NextRequest('http://localhost:3000/api/webhooks/outbound', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'emit',
+            eventType: 'plan.succeeded',
+            data: { planId: 'plan_test_99' }
+          })
+        })
+      );
+      expect(emitRes.status).toBe(200);
+      const emitData = await emitRes.json();
+      expect(emitData.deliveredCount).toBe(1);
+      expect(emitData.records[0].status).toBe('delivered');
+      expect(emitData.records[0].signature).toMatch(/^sha256=[a-f0-9]{64}$/);
+
+      const listRes = await outboundGET(new NextRequest('http://localhost:3000/api/webhooks/outbound'));
+      const listData = await listRes.json();
+      expect(listData.subscriptions.length).toBe(1);
+      expect(listData.deliveries.length).toBe(1);
+    });
+
+    it('exports reconciled expenses as RFC 4180 CSV and Markdown reports via /api/expenses/export', async () => {
+      const csvRes = await expensesExportGET(
+        new NextRequest('http://localhost:3000/api/expenses/export?format=csv')
+      );
+      expect(csvRes.status).toBe(200);
+      expect(csvRes.headers.get('content-type')).toContain('text/csv');
+      const csvText = await csvRes.text();
+      expect(csvText).toContain('ID,Date,Merchant,Category,Amount,Currency,TaxAmount,Verified,Source,LineItems');
+
+      const mdRes = await expensesExportGET(
+        new NextRequest('http://localhost:3000/api/expenses/export?format=markdown')
+      );
+      expect(mdRes.status).toBe(200);
+      expect(mdRes.headers.get('content-type')).toContain('text/markdown');
+      const mdText = await mdRes.text();
+      expect(mdText).toContain('# Executive Expense & Receipt Reconciliation Report');
+      expect(mdText).toContain('## Expense Ledger');
     });
   });
 });

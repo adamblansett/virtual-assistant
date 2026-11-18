@@ -23,6 +23,7 @@ import { SandboxedFileService } from '@/lib/integrations/files/service';
 import { InitializedAdaptersBundle } from '@/lib/tools/registry';
 import { JobManager } from '@/lib/jobs/queue';
 import { TelegramBotService } from '@/lib/services/telegram';
+import { OutboundWebhookBus } from '@/lib/services/webhook_bus';
 
 export class WorkflowExecutionEngine {
   private static defaultMockGmail = new MockGmailAdapter();
@@ -429,6 +430,20 @@ export class WorkflowExecutionEngine {
 
     plan.updatedAt = new Date().toISOString();
     AppStorage.savePlan(plan);
+
+    if (plan.status === 'awaiting_approval') {
+      await OutboundWebhookBus.emitEvent('approval.requested', {
+        planId: plan.id,
+        summary: plan.summary,
+        actionsCount: plan.actions.length
+      });
+    } else if (plan.status === 'succeeded') {
+      await OutboundWebhookBus.emitEvent('plan.succeeded', {
+        planId: plan.id,
+        summary: plan.summary,
+        succeededCount: succeeded
+      });
+    }
 
     const firstFailedAction = plan.actions.find(a => a.status === 'failed');
     JobManager.updateStatus(

@@ -147,7 +147,7 @@ export class MockAIProvider implements IAIProviderAdapter {
           flightNumber: flightMatch ? flightMatch[1].toUpperCase() : 'DL 428'
         }
       });
-    } else if (!lower.includes('remind') && !lower.includes('task') && !lower.includes('todo') && ((lower.includes('document') && (lower.includes('search') || lower.includes('find') || lower.includes('summarize') || lower.includes('summary') || lower.includes('open') || lower.includes('drive'))) || lower.includes('contract') || lower.includes('nda') || lower.includes('board deck') || lower.includes('soc-2') || lower.includes('drive search'))) {
+    } else if (!lower.includes('remind') && !lower.includes('task') && !lower.includes('todo') && ((lower.includes('document') && (lower.includes('search') || lower.includes('find') || lower.includes('summarize') || lower.includes('summary') || lower.includes('open') || lower.includes('drive'))) || lower.includes('contract') || /\bnda\b/i.test(lower) || lower.includes('board deck') || lower.includes('soc-2') || lower.includes('drive search'))) {
       if (lower.includes('summarize') || lower.includes('summary')) {
         text = "Summarizing cloud document and analyzing core business and legal terms...";
         toolCalls.push({
@@ -167,6 +167,13 @@ export class MockAIProvider implements IAIProviderAdapter {
           }
         });
       }
+    } else if (lower.includes('conflict') || lower.includes('anomal') || lower.includes('double-book') || lower.includes('overlap')) {
+      text = "Scanning your calendar, travel itineraries, expenses, and VIP cadences for conflicts and anomalies...";
+      toolCalls.push({
+        id: `call_${Date.now()}_conflicts`,
+        name: 'assistant_detect_conflicts',
+        arguments: {}
+      });
     } else if (lower.includes('scheduler') || lower.includes('evaluate jobs') || lower.includes('background daemon') || lower.includes('due jobs')) {
       text = "Evaluating scheduled background jobs and recurring routines...";
       toolCalls.push({

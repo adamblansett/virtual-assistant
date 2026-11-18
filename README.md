@@ -2,7 +2,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)](https://nextjs.org/)
-[![Tests](https://img.shields.io/badge/Tests-146%2F146%20Passing-emerald.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-150%2F150%20Passing-emerald.svg)](tests/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 An **evidence-driven, privacy-first, extensible, self-hostable autonomous AI Virtual Assistant**.
@@ -35,6 +35,9 @@ For a full breakdown of what is implemented versus the long-term vision, see the
 | Capability | Status | Implementation Details |
 | :--- | :--- | :--- |
 | **Open-Weight Models (Ollama / vLLM)** | :white_check_mark: Verified | Local & self-hosted open-weight LLM adapter (`qwen2.5:14b`, `qwen2.5:7b`, `qwen3:8b`, `llama3.1:8b`, `llama3.3:70b`, `mistral-small:24b`, `gemma3:12b`, `gemma3:27b`), `<think>` tag stripping, JSON tool fallback, and 1-click UI `ollama pull` |
+| **Proactive Conflict & Anomaly Radar** | :white_check_mark: Verified | Scans calendar overlaps, 15m buffer violations, travel-vs-meeting city mismatches, duplicate expense charges, and VIP drift (`ConflictDetectorService`, `/api/assistant/conflicts`) |
+| **Multi-Agent Specialist Coordinator** | :white_check_mark: Verified | Decomposes compound multi-domain instructions across `CommsSpecialist`, `CalendarTravelSpecialist`, `FinanceLegalSpecialist`, and `ResearchMemorySpecialist` (`SpecialistCoordinatorService`) |
+| **Outbound Event Webhook Bus & Exports** | :white_check_mark: Verified | HMAC-SHA256 signed outbound webhook triggers (`/api/webhooks/outbound` for n8n/Zapier/Make), `Cmd+K` Command Palette, and CSV/Markdown expense ledger exports (`/api/expenses/export`) |
 | **Streaming SSE & Live Step Progress** | :white_check_mark: Verified | Real-time `text/event-stream` SSE endpoint (`/api/assistant/chat/stream`) emitting `plan_created`, `step_started`, `step_completed`, `token`, and `done` events |
 | **Model Context Protocol (MCP) Client** | :white_check_mark: Verified | JSON-RPC 2.0 MCP client (`MCPClientService`, `/api/integrations/mcp`) with tool discovery (`tools/list`), invocation (`tools/call`), and dynamic `ToolRegistry` registration |
 | **Auto-Learning Memory & SQLite Backend** | :white_check_mark: Verified | Implicit fact mining (`MemoryService.extractAndLearnFromText`) and pluggable WAL-mode SQLite storage backend (`PluggableSQLiteAdapter` via `node:sqlite`) |
@@ -97,7 +100,7 @@ For a full breakdown of what is implemented versus the long-term vision, see the
 # 1. Install dependencies
 npm install
 
-# 2. Run test suite (146 tests passing across 26 suites)
+# 2. Run test suite (150 tests passing across 26 suites)
 npm test
 
 # 3. Start development server
