@@ -16,6 +16,7 @@ import {
 } from '@/types';
 import { CryptoVault } from '@/lib/security/vault';
 import { SemanticSearchEngine } from '@/lib/ai/embeddings';
+import { PluggableSQLiteAdapter } from '@/lib/storage/sqlite_adapter';
 
 export interface PersistedOAuthTokens {
   accessToken: string;
@@ -420,6 +421,14 @@ export class AppStorage {
     if (this.state) return;
 
     try {
+      if (process.env.ASSISTANT_STORAGE_BACKEND === 'sqlite' && PluggableSQLiteAdapter.isSupported()) {
+        const sqliteState = PluggableSQLiteAdapter.loadState();
+        if (sqliteState) {
+          this.state = this.decryptStateSecrets(sqliteState as AppState);
+          return;
+        }
+      }
+
       const dataDir = path.dirname(this.filePath);
       if (!fs.existsSync(dataDir)) {
         fs.mkdirSync(dataDir, { recursive: true });
@@ -446,6 +455,10 @@ export class AppStorage {
       const tmpPath = `${this.filePath}.tmp.${process.pid}.${Math.random().toString(36).slice(2, 8)}`;
       fs.writeFileSync(tmpPath, JSON.stringify(encryptedClone, null, 2), { encoding: 'utf-8', mode: 0o600 });
       fs.renameSync(tmpPath, this.filePath);
+
+      if (process.env.ASSISTANT_STORAGE_BACKEND === 'sqlite' && PluggableSQLiteAdapter.isSupported()) {
+        PluggableSQLiteAdapter.saveState(encryptedClone as unknown as Record<string, any>);
+      }
     } catch {
       // Fallback in memory
     }

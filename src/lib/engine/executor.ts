@@ -139,7 +139,13 @@ export class WorkflowExecutionEngine {
     plan: TaskPlan,
     isUserApproved: boolean = false,
     approvedActionIds: string[] = [],
-    modifiedArguments?: Record<string, Record<string, any>>
+    modifiedArguments?: Record<string, Record<string, any>>,
+    onProgress?: (event: {
+      type: 'step_started' | 'step_completed' | 'plan_paused' | 'plan_completed';
+      stepIndex?: number;
+      action?: TaskPlan['actions'][number];
+      plan: TaskPlan;
+    }) => void
   ): Promise<{ plan: TaskPlan; summary: ExecutionSummary }> {
     const preferences: UserPreferences = AppStorage.getPreferences();
     const adapters = this.getAdaptersBundle();
@@ -276,6 +282,7 @@ export class WorkflowExecutionEngine {
       action.status = 'running';
       plan.status = 'running';
       AppStorage.savePlan(plan);
+      onProgress?.({ type: 'step_started', stepIndex: i, action, plan });
 
       const startTime = Date.now();
       IdempotencyManager.startAction(idempotencyKey, action.id);
@@ -357,6 +364,7 @@ export class WorkflowExecutionEngine {
           verificationStatus: action.verificationStatus,
           durationMs
         });
+        onProgress?.({ type: 'step_completed', stepIndex: i, action, plan });
 
       } catch (err: any) {
         const durationMs = Date.now() - startTime;
@@ -379,6 +387,7 @@ export class WorkflowExecutionEngine {
           error: action.error,
           durationMs
         });
+        onProgress?.({ type: 'step_completed', stepIndex: i, action, plan });
 
         // Break on failure to preserve partial results safely
         break;
@@ -435,6 +444,10 @@ export class WorkflowExecutionEngine {
     );
 
     const explanation = this.buildOutcomeExplanation(plan, succeeded, failed, skipped, verified);
+    onProgress?.({
+      type: plan.status === 'awaiting_approval' ? 'plan_paused' : 'plan_completed',
+      plan
+    });
 
     return {
       plan,

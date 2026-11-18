@@ -179,4 +179,60 @@ export class SecurityAuth {
 
     return { authorized: true };
   }
+
+  /**
+   * Verifies Slack webhook requests against SLACK_SIGNING_SECRET using v0:timestamp:body HMAC-SHA256.
+   */
+  public static verifySlackWebhook(
+    req: NextRequest,
+    rawBody: string
+  ): { authorized: boolean; reason?: string } {
+    const signingSecret = process.env.SLACK_SIGNING_SECRET;
+    if (!signingSecret) {
+      return { authorized: true };
+    }
+
+    const timestamp = req.headers.get('x-slack-request-timestamp') || '';
+    const signature = req.headers.get('x-slack-signature') || '';
+    if (!timestamp || !signature) {
+      return { authorized: false, reason: 'Missing Slack signature or timestamp headers.' };
+    }
+
+    const baseString = `v0:${timestamp}:${rawBody}`;
+    const expectedSig =
+      'v0=' + crypto.createHmac('sha256', signingSecret).update(baseString, 'utf8').digest('hex');
+
+    if (!this.safeCompare(signature, expectedSig)) {
+      return { authorized: false, reason: 'Invalid Slack HMAC-SHA256 signature.' };
+    }
+
+    return { authorized: true };
+  }
+
+  /**
+   * Verifies Meta WhatsApp Cloud API webhook payloads against WHATSAPP_APP_SECRET using x-hub-signature-256.
+   */
+  public static verifyWhatsAppWebhook(
+    req: NextRequest,
+    rawBody: string
+  ): { authorized: boolean; reason?: string } {
+    const appSecret = process.env.WHATSAPP_APP_SECRET;
+    if (!appSecret) {
+      return { authorized: true };
+    }
+
+    const signature = req.headers.get('x-hub-signature-256') || '';
+    if (!signature) {
+      return { authorized: false, reason: 'Missing X-Hub-Signature-256 header.' };
+    }
+
+    const expectedSig =
+      'sha256=' + crypto.createHmac('sha256', appSecret).update(rawBody, 'utf8').digest('hex');
+
+    if (!this.safeCompare(signature, expectedSig)) {
+      return { authorized: false, reason: 'Invalid WhatsApp X-Hub-Signature-256.' };
+    }
+
+    return { authorized: true };
+  }
 }

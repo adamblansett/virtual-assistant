@@ -1007,8 +1007,19 @@ export class ToolRegistry {
         return await CloudDriveSyncService.syncFromGoogleDrive(args.maxResults);
       }
 
-      default:
+      default: {
+        if (toolName.startsWith('mcp_')) {
+          const { MCPClientService } = await import('@/lib/integrations/mcp/client');
+          const rest = toolName.slice(4);
+          const sepIdx = rest.indexOf('_');
+          if (sepIdx > 0) {
+            const serverId = rest.slice(0, sepIdx);
+            const mcpToolName = rest.slice(sepIdx + 1);
+            return await MCPClientService.invokeTool(serverId, mcpToolName, rawArgs);
+          }
+        }
         throw new Error(`Execution handler not implemented for tool: ${toolName}`);
+      }
     }
   }
 }

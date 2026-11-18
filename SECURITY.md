@@ -15,6 +15,7 @@ The Open-Source AI Virtual Assistant is architected with a **Defense-in-Depth** 
 9. **SSRF Protection on Web Research (`WebResearchService`)**: Validates all outbound URLs before fetching, blocking non-HTTP(S) protocols, loopback interfaces (`localhost`, `127.0.0.0/8`, `::1`), private RFC-1918 networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), and cloud metadata endpoints (`169.254.169.254`).
 10. **Strict Zod Schema Validation on Inline Approval Edits**: Any user-edited action parameters (`modifiedArguments`) submitted at the approval gate are strictly validated through the tool's registered Zod schema (`ToolRegistry.getTool(toolName).schema.parse(...)`) prior to execution.
 11. **Wire-Level Secret Masking & Sliding-Window Rate Limiting (`SecurityAuth`)**: `GET /api/integrations` masks all configured API keys (`••••••••abcd`) so raw secrets are never sent to browser clients, `AppStorage.updateIntegrationConfig` ignores masked placeholders on update, and `SecurityAuth.checkRateLimit` enforces per-client sliding-window request rate limits.
+12. **Slack & WhatsApp HMAC-SHA256 Webhook Verification & MCP Risk Tiering**: Verifies Slack `x-slack-signature` (`v0:timestamp:body` with `SLACK_SIGNING_SECRET`) and Meta WhatsApp `x-hub-signature-256` (`WHATSAPP_APP_SECRET`) using constant-time comparison, and automatically classifies dynamically discovered MCP tools into `read`, `reversible_write`, and `consequential` approval tiers.
 
 ## Supported Versions
 

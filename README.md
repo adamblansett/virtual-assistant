@@ -2,7 +2,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)](https://nextjs.org/)
-[![Tests](https://img.shields.io/badge/Tests-141%2F141%20Passing-emerald.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-146%2F146%20Passing-emerald.svg)](tests/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 An **evidence-driven, privacy-first, extensible, self-hostable autonomous AI Virtual Assistant**.
@@ -35,6 +35,10 @@ For a full breakdown of what is implemented versus the long-term vision, see the
 | Capability | Status | Implementation Details |
 | :--- | :--- | :--- |
 | **Open-Weight Models (Ollama / vLLM)** | :white_check_mark: Verified | Local & self-hosted open-weight LLM adapter (`qwen2.5:14b`, `qwen2.5:7b`, `qwen3:8b`, `llama3.1:8b`, `llama3.3:70b`, `mistral-small:24b`, `gemma3:12b`, `gemma3:27b`), `<think>` tag stripping, JSON tool fallback, and 1-click UI `ollama pull` |
+| **Streaming SSE & Live Step Progress** | :white_check_mark: Verified | Real-time `text/event-stream` SSE endpoint (`/api/assistant/chat/stream`) emitting `plan_created`, `step_started`, `step_completed`, `token`, and `done` events |
+| **Model Context Protocol (MCP) Client** | :white_check_mark: Verified | JSON-RPC 2.0 MCP client (`MCPClientService`, `/api/integrations/mcp`) with tool discovery (`tools/list`), invocation (`tools/call`), and dynamic `ToolRegistry` registration |
+| **Auto-Learning Memory & SQLite Backend** | :white_check_mark: Verified | Implicit fact mining (`MemoryService.extractAndLearnFromText`) and pluggable WAL-mode SQLite storage backend (`PluggableSQLiteAdapter` via `node:sqlite`) |
+| **Slack & WhatsApp Inbound/Outbound Webhooks** | :white_check_mark: Verified | Full inbound & outbound gateways (`/api/webhooks/slack`, `/api/webhooks/whatsapp`) with HMAC-SHA256 signature verification, challenge handshakes, and interactive approval buttons |
 | **Post-Tool AI Synthesis Loop** | :white_check_mark: Verified | Feeds actual tool outputs back into the active LLM (`TaskPlanner.synthesizeExecutionResponse`) to generate grounded natural-language executive answers |
 | **Hybrid Semantic RAG (BM25 + Vectors)** | :white_check_mark: Verified | Combines exact phrase boost, stemmed BM25 + domain synonym expansion, and cosine vector similarity (`SemanticSearchEngine`) across Memories and Drive docs |
 | **Inline Action Parameter Editing** | :white_check_mark: Verified | Edit tool arguments (e.g., email recipient, subject, body, or meeting time) inline before approving paused actions (`modifiedArguments`) |
@@ -93,7 +97,7 @@ For a full breakdown of what is implemented versus the long-term vision, see the
 # 1. Install dependencies
 npm install
 
-# 2. Run test suite (141 tests passing across 26 suites)
+# 2. Run test suite (146 tests passing across 26 suites)
 npm test
 
 # 3. Start development server

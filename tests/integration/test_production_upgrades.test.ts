@@ -30,6 +30,12 @@ import { GET as backupGET, POST as backupPOST } from '@/app/api/backup/route';
 import { GET as icsGET } from '@/app/api/calendar/ics/route';
 import { POST as filesPOST } from '@/app/api/files/route';
 import { DELETE as memoryDELETE } from '@/app/api/memory/route';
+import { POST as chatStreamPOST } from '@/app/api/assistant/chat/stream/route';
+import { MCPClientService } from '@/lib/integrations/mcp/client';
+import { GET as mcpGET, POST as mcpPOST } from '@/app/api/integrations/mcp/route';
+import { POST as slackPOST } from '@/app/api/webhooks/slack/route';
+import { GET as whatsappGET, POST as whatsappPOST } from '@/app/api/webhooks/whatsapp/route';
+import { PluggableSQLiteAdapter } from '@/lib/storage/sqlite_adapter';
 import { TaskPlan } from '@/types';
 
 describe('Production Upgrades: Security, Live APIs, Memory, Web Research & Agent Loop', () => {
@@ -38,6 +44,7 @@ describe('Production Upgrades: Security, Live APIs, Memory, Web Research & Agent
     WorkflowExecutionEngine.reset();
     SecurityAuth.resetRateLimits();
     OmnichannelIngestionService.clearOutboundLog();
+    MCPClientService.reset();
     vi.restoreAllMocks();
   });
 
@@ -47,8 +54,12 @@ describe('Production Upgrades: Security, Live APIs, Memory, Web Research & Agent
     delete process.env.TELEGRAM_WEBHOOK_SECRET;
     delete process.env.TELEGRAM_DEFAULT_CHAT_ID;
     delete process.env.SLACK_WEBHOOK_URL;
+    delete process.env.SLACK_SIGNING_SECRET;
     delete process.env.WHATSAPP_ACCESS_TOKEN;
     delete process.env.WHATSAPP_PHONE_NUMBER_ID;
+    delete process.env.WHATSAPP_VERIFY_TOKEN;
+    delete process.env.WHATSAPP_APP_SECRET;
+    delete process.env.ASSISTANT_STORAGE_BACKEND;
     delete process.env.AVIATIONSTACK_API_KEY;
     delete process.env.GOOGLE_CLIENT_ID;
     delete process.env.GOOGLE_CLIENT_SECRET;
@@ -791,6 +802,192 @@ describe('Production Upgrades: Security, Live APIs, Memory, Web Research & Agent
       const log = OmnichannelIngestionService.getOutboundLog();
       expect(log.some(r => r.channel === 'slack' && r.mode === 'live_api')).toBe(true);
       expect(log.some(r => r.channel === 'whatsapp' && r.mode === 'live_api')).toBe(true);
+    });
+  });
+
+  describe('8. Phase 7: SSE Streaming, MCP Client, Auto-Learning Memory, Slack/WhatsApp Webhooks & SQLite Adapter', () => {
+    it('streams real-time SSE events (plan_created, step_started, step_completed, token, done) via /api/assistant/chat/stream', async () => {
+      const req = new NextRequest('http://localhost:3000/api/assistant/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Search for emails from Acme. Also I always fly United Polaris out of SFO.'
+        })
+      });
+
+      const res = await chatStreamPOST(req);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/event-stream');
+
+      const rawStream = await res.text();
+      expect(rawStream).toContain('event: plan_created');
+      expect(rawStream).toContain('event: step_started');
+      expect(rawStream).toContain('event: step_completed');
+      expect(rawStream).toContain('event: token');
+      expect(rawStream).toContain('event: done');
+    });
+
+    it('registers MCP servers, classifies tool risk levels, and invokes MCP tools through ToolRegistry', async () => {
+      const listRes = await mcpGET(new NextRequest('http://localhost:3000/api/integrations/mcp'));
+      expect(listRes.status).toBe(200);
+      const listData = await listRes.json();
+      expect(listData.servers.length).toBeGreaterThanOrEqual(3);
+
+      // Verify pre-seeded MCP tool is registered in ToolRegistry
+      const ghTool = ToolRegistry.getTool('mcp_github_list_pull_requests');
+      expect(ghTool).toBeDefined();
+      expect(ghTool?.riskLevel).toBe('read');
+
+      // Register custom Jira MCP server with a consequential delete tool
+      const regRes = await mcpPOST(
+        new NextRequest('http://localhost:3000/api/integrations/mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'register',
+            id: 'jira',
+            name: 'Atlassian Jira MCP',
+            endpointUrl: 'http://localhost:8095/mcp',
+            discoveredTools: [
+              { name: 'delete_ticket', description: 'Deletes a Jira ticket permanently.' }
+            ]
+          })
+        })
+      );
+      expect(regRes.status).toBe(200);
+
+      const jiraDeleteTool = ToolRegistry.getTool('mcp_jira_delete_ticket');
+      expect(jiraDeleteTool).toBeDefined();
+      expect(jiraDeleteTool?.riskLevel).toBe('consequential');
+      expect(jiraDeleteTool?.approvalRequiredByDefault).toBe(true);
+
+      // Execute MCP tool through ToolRegistry
+      const execOutput = await ToolRegistry.executeTool('mcp_github_list_pull_requests', {
+        repo: 'org/virtual-assistant',
+        state: 'open'
+      });
+      expect(execOutput.serverId).toBe('github');
+      expect(execOutput.toolName).toBe('list_pull_requests');
+      expect(execOutput.output.status).toBe('completed');
+    });
+
+    it('automatically extracts and deduplicates implicit executive memories from conversational text', () => {
+      const text =
+        'Please check my calendar. I always fly United Polaris on international routes. Never schedule meetings before 9:30 AM. My CFO is Elena Vance (elena@company.com).';
+
+      const learned1 = MemoryService.extractAndLearnFromText(text, 'auto_test');
+      expect(learned1.length).toBe(3);
+      expect(learned1.some(m => m.category === 'travel')).toBe(true);
+      expect(learned1.some(m => m.category === 'scheduling')).toBe(true);
+      expect(learned1.some(m => m.category === 'relationship')).toBe(true);
+
+      // Running a second time on identical text deduplicates and adds 0 duplicates
+      const learned2 = MemoryService.extractAndLearnFromText(text, 'auto_test');
+      expect(learned2.length).toBe(0);
+    });
+
+    it('handles inbound Slack Events API and WhatsApp Cloud API webhooks (challenges, messages, and interactive approvals)', async () => {
+      // 1. Slack URL verification challenge
+      const slackChallengeRes = await slackPOST(
+        new NextRequest('http://localhost:3000/api/webhooks/slack', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'url_verification', challenge: 'slack_challenge_xyz' })
+        })
+      );
+      expect(slackChallengeRes.status).toBe(200);
+      const slackChallengeData = await slackChallengeRes.json();
+      expect(slackChallengeData.challenge).toBe('slack_challenge_xyz');
+
+      // 2. Slack event_callback message
+      const slackMsgRes = await slackPOST(
+        new NextRequest('http://localhost:3000/api/webhooks/slack', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'event_callback',
+            event: {
+              channel: '#exec-ops',
+              user: 'U12345',
+              text: 'Give me my morning briefing'
+            }
+          })
+        })
+      );
+      expect(slackMsgRes.status).toBe(200);
+      const slackMsgData = await slackMsgRes.json();
+      expect(slackMsgData.ok).toBe(true);
+      expect(slackMsgData.response.channel).toBe('slack');
+
+      // 3. WhatsApp GET verification challenge
+      process.env.WHATSAPP_VERIFY_TOKEN = 'wa_secret_verify_token';
+      const waVerifyRes = await whatsappGET(
+        new NextRequest(
+          'http://localhost:3000/api/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=wa_secret_verify_token&hub.challenge=wa_challenge_987'
+        )
+      );
+      expect(waVerifyRes.status).toBe(200);
+      expect(await waVerifyRes.text()).toBe('wa_challenge_987');
+
+      // 4. WhatsApp POST inbound text message
+      const waPostRes = await whatsappPOST(
+        new NextRequest('http://localhost:3000/api/webhooks/whatsapp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entry: [
+              {
+                changes: [
+                  {
+                    value: {
+                      messages: [
+                        {
+                          from: '+14155550100',
+                          type: 'text',
+                          text: { body: 'Give me my morning briefing' }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          })
+        })
+      );
+      expect(waPostRes.status).toBe(200);
+      const waPostData = await waPostRes.json();
+      expect(waPostData.ok).toBe(true);
+      expect(waPostData.results.length).toBe(1);
+      expect(waPostData.results[0].type).toBe('message');
+    });
+
+    it('persists and queries encrypted state and relational memories using the WAL-mode SQLite adapter', () => {
+      expect(PluggableSQLiteAdapter.isSupported()).toBe(true);
+
+      const sampleState = {
+        version: '1.0',
+        memories: {
+          mem_sql_1: {
+            id: 'mem_sql_1',
+            category: 'travel',
+            fact: 'Always book direct flights on Delta out of BOS',
+            source: 'sqlite_test',
+            updatedAt: new Date().toISOString()
+          }
+        }
+      };
+
+      const saved = PluggableSQLiteAdapter.saveState(sampleState);
+      expect(saved).toBe(true);
+
+      const loaded = PluggableSQLiteAdapter.loadState();
+      expect(loaded).toBeDefined();
+      expect(loaded?.memories?.mem_sql_1?.fact).toContain('Delta out of BOS');
+
+      const sqlRows = PluggableSQLiteAdapter.queryMemoriesSql('travel');
+      expect(sqlRows.length).toBe(1);
+      expect(sqlRows[0].id).toBe('mem_sql_1');
     });
   });
 });

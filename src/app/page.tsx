@@ -164,6 +164,10 @@ export default function AssistantApp() {
   const [newMemoryFact, setNewMemoryFact] = useState('');
   const [newMemoryCategory, setNewMemoryCategory] = useState<MemoryFact['category']>('preference');
   const [backupFeedback, setBackupFeedback] = useState<string | null>(null);
+  const [mcpServers, setMcpServers] = useState<any[]>([]);
+  const [newMcpId, setNewMcpId] = useState('');
+  const [newMcpName, setNewMcpName] = useState('');
+  const [newMcpUrl, setNewMcpUrl] = useState('');
 
   const [omniChannel, setOmniChannel] = useState<'telegram' | 'whatsapp' | 'slack' | 'voice_note'>('telegram');
   const [omniInputText, setOmniInputText] = useState('');
@@ -502,8 +506,41 @@ export default function AssistantApp() {
         const mData = await memRes.json();
         setMemories(mData.memories || []);
       }
+
+      // 20. Fetch MCP servers
+      const mcpRes = await fetch('/api/integrations/mcp');
+      if (mcpRes.ok) {
+        const mcpData = await mcpRes.json();
+        setMcpServers(mcpData.servers || []);
+      }
     } catch (err) {
       console.error('Failed to load initial data:', err);
+    }
+  };
+
+  const handleRegisterMcpServer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMcpId.trim() || !newMcpName.trim() || !newMcpUrl.trim()) return;
+    try {
+      const res = await fetch('/api/integrations/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'register',
+          id: newMcpId.trim(),
+          name: newMcpName.trim(),
+          endpointUrl: newMcpUrl.trim()
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMcpServers(data.servers || []);
+        setNewMcpId('');
+        setNewMcpName('');
+        setNewMcpUrl('');
+      }
+    } catch (err) {
+      console.error('Failed to register MCP server:', err);
     }
   };
 
@@ -3464,6 +3501,76 @@ export default function AssistantApp() {
                   />
                 </div>
               )}
+            </div>
+
+            {/* External Model Context Protocol (MCP) Servers Card */}
+            <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold">Model Context Protocol (MCP) External Tool Servers</h3>
+                  <p className="text-xs text-zinc-500">
+                    Connect JSON-RPC 2.0 MCP servers (GitHub, Linear, Notion, custom) and dynamically register their tools in ToolRegistry with automatic risk-tier classification.
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                  {mcpServers.length} Connected
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {mcpServers.map((srv) => (
+                  <div
+                    key={srv.id}
+                    className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 space-y-1.5 text-xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-zinc-800 dark:text-zinc-200">{srv.name}</span>
+                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    </div>
+                    <div className="font-mono text-[10px] text-zinc-400 truncate">{srv.endpointUrl}</div>
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {(srv.discoveredTools || []).map((t: any) => (
+                        <span
+                          key={t.name}
+                          className="px-1.5 py-0.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 font-mono text-[10px]"
+                        >
+                          mcp_{srv.id}_{t.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <form onSubmit={handleRegisterMcpServer} className="flex flex-wrap gap-2 items-center pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                <input
+                  type="text"
+                  placeholder="Server ID (e.g. jira)"
+                  value={newMcpId}
+                  onChange={(e) => setNewMcpId(e.target.value)}
+                  className="w-32 text-xs px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 font-mono"
+                />
+                <input
+                  type="text"
+                  placeholder="Display Name (e.g. Jira MCP)"
+                  value={newMcpName}
+                  onChange={(e) => setNewMcpName(e.target.value)}
+                  className="flex-1 text-xs px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
+                />
+                <input
+                  type="text"
+                  placeholder="Endpoint URL (http://localhost:8095/mcp)"
+                  value={newMcpUrl}
+                  onChange={(e) => setNewMcpUrl(e.target.value)}
+                  className="flex-1 text-xs px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 font-mono"
+                />
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition"
+                >
+                  + Add MCP Server
+                </button>
+              </form>
             </div>
           </div>
         )}

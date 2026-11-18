@@ -20,6 +20,7 @@
 
 # runtime data
 /data/*.json
+/data/*.sqlite*
 !/data/.gitkeep
 /data/workspace/*
 !/data/workspace/.gitkeep

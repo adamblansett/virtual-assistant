@@ -4,12 +4,13 @@ import { WorkflowExecutionEngine } from '@/lib/engine/executor';
 import { AIProviderFactory } from '@/lib/ai/adapter';
 import { AppStorage } from '@/lib/storage/db';
 import { SecurityAuth } from '@/lib/security/auth';
+import { MemoryService } from '@/lib/services/memory';
 
 export async function POST(req: NextRequest) {
   try {
     const auth = SecurityAuth.verifyApiRequest(req);
     if (!auth.authorized) {
-      return NextResponse.json({ error: auth.reason || 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: auth.reason || 'Unauthorized' }, { status: auth.status || 401 });
     }
 
     const body = await req.json();
@@ -21,6 +22,9 @@ export async function POST(req: NextRequest) {
 
     AppStorage.initialize();
     AppStorage.addMessage('user', message);
+
+    // Implicitly extract and persist any durable executive facts from the user's message
+    const learnedMemories = MemoryService.extractAndLearnFromText(message, 'auto_chat');
 
     const config = AppStorage.getIntegrationConfig();
     const preferences = AppStorage.getPreferences();
@@ -42,7 +46,8 @@ export async function POST(req: NextRequest) {
       plan: executedPlan,
       summary,
       assistantMessage: assistantText,
-      requiresApproval: executedPlan.status === 'awaiting_approval'
+      requiresApproval: executedPlan.status === 'awaiting_approval',
+      learnedMemories
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
