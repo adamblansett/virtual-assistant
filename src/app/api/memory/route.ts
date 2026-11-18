@@ -42,3 +42,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message || 'Failed to save memory' }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  const auth = SecurityAuth.verifyApiRequest(req);
+  if (!auth.authorized) {
+    return NextResponse.json({ error: auth.reason }, { status: auth.status || 401 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get('id') || '';
+  if (!id) {
+    return NextResponse.json({ error: 'Memory id is required.' }, { status: 400 });
+  }
+
+  const deleted = MemoryService.forgetFact(id);
+  return NextResponse.json({ deleted, memories: MemoryService.listAllFacts() });
+}

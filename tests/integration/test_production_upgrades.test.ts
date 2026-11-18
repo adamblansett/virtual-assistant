@@ -25,12 +25,19 @@ import { JobManager } from '@/lib/jobs/queue';
 import { SemanticSearchEngine } from '@/lib/ai/embeddings';
 import { GET as sessionGET, POST as sessionPOST } from '@/app/api/auth/session/route';
 import { POST as approvePOST } from '@/app/api/assistant/approve/route';
+import { GET as intGET, POST as intPOST } from '@/app/api/integrations/route';
+import { GET as backupGET, POST as backupPOST } from '@/app/api/backup/route';
+import { GET as icsGET } from '@/app/api/calendar/ics/route';
+import { POST as filesPOST } from '@/app/api/files/route';
+import { DELETE as memoryDELETE } from '@/app/api/memory/route';
 import { TaskPlan } from '@/types';
 
 describe('Production Upgrades: Security, Live APIs, Memory, Web Research & Agent Loop', () => {
   beforeEach(() => {
     AppStorage.reset();
     WorkflowExecutionEngine.reset();
+    SecurityAuth.resetRateLimits();
+    OmnichannelIngestionService.clearOutboundLog();
     vi.restoreAllMocks();
   });
 
@@ -39,9 +46,13 @@ describe('Production Upgrades: Security, Live APIs, Memory, Web Research & Agent
     delete process.env.ASSISTANT_ACCESS_TOKEN;
     delete process.env.TELEGRAM_WEBHOOK_SECRET;
     delete process.env.TELEGRAM_DEFAULT_CHAT_ID;
+    delete process.env.SLACK_WEBHOOK_URL;
+    delete process.env.WHATSAPP_ACCESS_TOKEN;
+    delete process.env.WHATSAPP_PHONE_NUMBER_ID;
     delete process.env.AVIATIONSTACK_API_KEY;
     delete process.env.GOOGLE_CLIENT_ID;
     delete process.env.GOOGLE_CLIENT_SECRET;
+    SecurityAuth.resetRateLimits();
     BackgroundSchedulerService.stopDaemon();
     vi.restoreAllMocks();
   });
@@ -597,6 +608,189 @@ describe('Production Upgrades: Security, Live APIs, Memory, Web Research & Agent
       expect(job?.status).toBe('succeeded');
       expect(job?.checkpoints.length).toBe(1);
       expect(job?.checkpoints[0].actionId).toBe(actionId);
+    });
+  });
+
+  describe('7. API Secret Masking, Rate Limiting, Backup/Restore, ICS Export, Self-Healing Retry & Slack/WhatsApp Outbound', () => {
+    it('masks secrets in GET /api/integrations, preserves stored keys on masked POST, and enforces sliding-window rate limits', async () => {
+      AppStorage.updateIntegrationConfig({
+        aiProvider: 'gemini',
+        geminiApiKey: 'AIzaSySecretKey9876',
+        telegramBotToken: '999000:SuperSecretTgToken'
+      });
+
+      const getRes = await intGET(new NextRequest('http://localhost:3000/api/integrations'));
+      expect(getRes.status).toBe(200);
+      const getData = await getRes.json();
+
+      // Secret keys are masked in HTTP response
+      expect(getData.config.geminiApiKey).toBe('••••••••9876');
+      expect(getData.config.hasGeminiKey).toBe(true);
+      expect(getData.config.telegramBotToken).toBe('••••••••oken');
+
+      // Submitting a masked placeholder in POST /api/integrations does NOT overwrite the real secret in storage
+      const postRes = await intPOST(
+        new NextRequest('http://localhost:3000/api/integrations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            aiProvider: 'open_weight',
+            geminiApiKey: '••••••••9876'
+          })
+        })
+      );
+      expect(postRes.status).toBe(200);
+      expect(AppStorage.getIntegrationConfig().geminiApiKey).toBe('AIzaSySecretKey9876');
+
+      // Verify rate limiter blocks once limit is exceeded
+      SecurityAuth.resetRateLimits();
+      for (let i = 0; i < 3; i++) {
+        expect(SecurityAuth.checkRateLimit('test_client_ip', 3).allowed).toBe(true);
+      }
+      const blocked = SecurityAuth.checkRateLimit('test_client_ip', 3);
+      expect(blocked.allowed).toBe(false);
+      expect(blocked.remaining).toBe(0);
+    });
+
+    it('exports and restores full assistant state via /api/backup and deletes memories via DELETE /api/memory', async () => {
+      const mem = MemoryService.rememberFact('Board meeting every first Tuesday at 10am', 'scheduling');
+      const deleteRes = await memoryDELETE(
+        new NextRequest(`http://localhost:3000/api/memory?id=${encodeURIComponent(mem.id)}`, {
+          method: 'DELETE'
+        })
+      );
+      expect(deleteRes.status).toBe(200);
+      const delData = await deleteRes.json();
+      expect(delData.deleted).toBe(true);
+
+      // Add a new memory fact and export backup snapshot
+      const persistedMem = MemoryService.rememberFact('Preferred hotel chain: Four Seasons', 'travel');
+      const exportRes = await backupGET(new NextRequest('http://localhost:3000/api/backup'));
+      expect(exportRes.status).toBe(200);
+      const exportData = await exportRes.json();
+      expect(exportData.snapshot.version).toBe('1.0');
+      expect(exportData.snapshot.memories.some((m: any) => m.id === persistedMem.id)).toBe(true);
+
+      // Reset storage and restore from snapshot
+      AppStorage.reset();
+      expect(MemoryService.listAllFacts().some(m => m.id === persistedMem.id)).toBe(false);
+
+      const restoreRes = await backupPOST(
+        new NextRequest('http://localhost:3000/api/backup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ snapshot: exportData.snapshot })
+        })
+      );
+      expect(restoreRes.status).toBe(200);
+      const restoreData = await restoreRes.json();
+      expect(restoreData.restored).toBe(true);
+      expect(MemoryService.listAllFacts().some(m => m.id === persistedMem.id)).toBe(true);
+    });
+
+    it('exports RFC 5545 .ics calendar feed via /api/calendar/ics and writes sandboxed files via POST /api/files', async () => {
+      const icsRes = await icsGET(new NextRequest('http://localhost:3000/api/calendar/ics'));
+      expect(icsRes.status).toBe(200);
+      expect(icsRes.headers.get('content-type')).toContain('text/calendar');
+
+      const icsText = await icsRes.text();
+      expect(icsText).toContain('BEGIN:VCALENDAR');
+      expect(icsText).toContain('BEGIN:VEVENT');
+      expect(icsText).toContain('END:VCALENDAR');
+
+      const uploadRes = await filesPOST(
+        new NextRequest('http://localhost:3000/api/files', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filePath: 'board_agenda_upload.md',
+            content: '# Q4 Board Agenda\n1. Financial Review'
+          })
+        })
+      );
+      expect(uploadRes.status).toBe(200);
+      const uploadData = await uploadRes.json();
+      expect(uploadData.success).toBe(true);
+      expect(uploadData.files.some((f: any) => f.name === 'board_agenda_upload.md')).toBe(true);
+    });
+
+    it('coerces stringified array/number arguments and retries transient 429/timeout tool errors automatically', async () => {
+      const coerced = WorkflowExecutionEngine.coerceActionArguments({
+        messageIds: '["msg_1", "msg_2"]',
+        durationMinutes: '45'
+      });
+      expect(Array.isArray(coerced.messageIds)).toBe(true);
+      expect(coerced.messageIds).toEqual(['msg_1', 'msg_2']);
+      expect(coerced.durationMinutes).toBe(45);
+
+      let attempts = 0;
+      const origExecute = ToolRegistry.executeTool.bind(ToolRegistry);
+      vi.spyOn(ToolRegistry, 'executeTool').mockImplementation(async (name, args, adapters, prefs) => {
+        attempts++;
+        if (attempts === 1) {
+          throw new Error('429 Too Many Requests: transient rate limit');
+        }
+        return origExecute(name, args, adapters, prefs);
+      });
+
+      const plan: TaskPlan = {
+        id: 'plan_retry_transient',
+        userRequestId: 'req_retry_1',
+        originalPrompt: 'List tasks with retry',
+        summary: 'Transient retry test',
+        status: 'proposed',
+        requiresUserConfirmation: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        actions: [
+          {
+            id: 'act_retry_1',
+            integration: 'assistant',
+            toolName: 'tasks_list',
+            arguments: { status: 'todo' },
+            requiredPermission: 'tasks.read',
+            targetResource: 'assistant:tasks',
+            expectedOutcome: 'List tasks after transient retry',
+            riskLevel: 'read',
+            approvalRequired: false,
+            status: 'proposed',
+            verificationStatus: 'pending',
+            retryCount: 0
+          }
+        ]
+      };
+
+      const { plan: executedPlan } = await WorkflowExecutionEngine.executePlan(plan, true);
+      expect(executedPlan.status).toBe('succeeded');
+      expect(executedPlan.actions[0].retryCount).toBe(1);
+      expect(attempts).toBe(2);
+    });
+
+    it('dispatches live outbound Slack webhook and WhatsApp Cloud API messages when configured', async () => {
+      process.env.SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/T000/B000/X000';
+      process.env.WHATSAPP_ACCESS_TOKEN = 'EAAB_live_whatsapp_token';
+      process.env.WHATSAPP_PHONE_NUMBER_ID = '10987654321';
+
+      const fetchSpy = vi
+        .spyOn(global, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+
+      await OmnichannelIngestionService.processInboundMessage({
+        channel: 'slack',
+        senderId: '#exec-alerts',
+        text: 'Give me my morning briefing'
+      });
+
+      await OmnichannelIngestionService.processInboundMessage({
+        channel: 'whatsapp',
+        senderId: '+14155550199',
+        text: 'Give me my morning briefing'
+      });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      const log = OmnichannelIngestionService.getOutboundLog();
+      expect(log.some(r => r.channel === 'slack' && r.mode === 'live_api')).toBe(true);
+      expect(log.some(r => r.channel === 'whatsapp' && r.mode === 'live_api')).toBe(true);
     });
   });
 });

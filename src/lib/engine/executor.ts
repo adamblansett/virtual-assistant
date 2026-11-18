@@ -61,6 +61,77 @@ export class WorkflowExecutionEngine {
   }
 
   /**
+   * Self-healing argument coercion for common LLM / step-chaining serialization quirks
+   * (e.g. JSON-stringified arrays from {{$prev}} interpolation or numeric strings).
+   */
+  public static coerceActionArguments(rawArgs: Record<string, any>): Record<string, any> {
+    if (!rawArgs || typeof rawArgs !== 'object') return rawArgs;
+    const coerced: Record<string, any> = { ...rawArgs };
+    const numericKeys = new Set(['durationMinutes', 'olderThanYears', 'maxResults', 'maxBytes']);
+
+    for (const [key, val] of Object.entries(coerced)) {
+      if (typeof val === 'string') {
+        const trimmed = val.trim();
+        if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (Array.isArray(parsed)) {
+              coerced[key] = parsed;
+              continue;
+            }
+          } catch {
+            // Keep original string if not valid JSON array
+          }
+        }
+        if (numericKeys.has(key) && /^\d+$/.test(trimmed)) {
+          coerced[key] = Number(trimmed);
+        }
+      }
+    }
+
+    return coerced;
+  }
+
+  /**
+   * Executes a tool with self-healing argument coercion and exponential backoff retry
+   * on transient errors (429 rate limits, 502/503 gateway errors, network timeouts).
+   */
+  private static async executeToolWithRetry(
+    action: TaskPlan['actions'][number],
+    adapters: InitializedAdaptersBundle,
+    preferences: UserPreferences,
+    maxRetries: number = 2
+  ): Promise<any> {
+    action.arguments = this.coerceActionArguments(action.arguments);
+
+    let attempt = 0;
+    while (true) {
+      try {
+        return await ToolRegistry.executeTool(
+          action.toolName,
+          action.arguments,
+          adapters,
+          preferences
+        );
+      } catch (err: any) {
+        const msg = String(err?.message || '');
+        const isTransient =
+          /rate limit|429|502|503|timeout|ETIMEDOUT|ECONNRESET|temporarily unavailable|transient/i.test(
+            msg
+          );
+
+        if (isTransient && attempt < maxRetries) {
+          attempt++;
+          action.retryCount = (action.retryCount || 0) + 1;
+          await new Promise(resolve => setTimeout(resolve, 15 * attempt));
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
+  /**
    * Executes a TaskPlan through all safety and authorization gates.
    * If an action requires human approval and has not been approved, execution pauses in 'awaiting_approval'.
    */
@@ -210,10 +281,9 @@ export class WorkflowExecutionEngine {
       IdempotencyManager.startAction(idempotencyKey, action.id);
 
       try {
-        // Execute tool
-        const toolResult = await ToolRegistry.executeTool(
-          action.toolName,
-          action.arguments,
+        // Execute tool with self-healing argument coercion and transient error retry
+        const toolResult = await this.executeToolWithRetry(
+          action,
           adapters,
           preferences
         );

@@ -14,11 +14,12 @@ import {
 import { 
   TaskPlan, AuditEvent, UserPreferences, TaskItem, ContactItem, ExpenseRecord, ExecutiveBriefing,
   MeetingDossier, TripItinerary, RoutineExecutionResult,
-  ExecutiveVoiceProfile, CloudDocument, ScheduledJobConfig, ParsedReceipt, GhostwriteResult
+  ExecutiveVoiceProfile, CloudDocument, ScheduledJobConfig, ParsedReceipt, GhostwriteResult,
+  MemoryFact
 } from '@/types';
 
 export default function AssistantApp() {
-  const [activeTab, setActiveTab] = useState<'chat' | 'briefing' | 'tasks' | 'contacts' | 'expenses' | 'dossiers' | 'travel' | 'routines' | 'voice' | 'documents' | 'scheduler' | 'omnichannel' | 'jobs' | 'calendar' | 'files' | 'history' | 'integrations' | 'audit' | 'preferences'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'briefing' | 'tasks' | 'contacts' | 'expenses' | 'dossiers' | 'travel' | 'routines' | 'voice' | 'documents' | 'memory' | 'scheduler' | 'omnichannel' | 'jobs' | 'calendar' | 'files' | 'history' | 'integrations' | 'audit' | 'preferences'>('chat');
   const [inputMessage, setInputMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -154,8 +155,15 @@ export default function AssistantApp() {
 
   const [parsedReceipts, setParsedReceipts] = useState<ParsedReceipt[]>([]);
   const [receiptRawInput, setReceiptRawInput] = useState('');
+  const [receiptFileData, setReceiptFileData] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
   const [latestParsedReceipt, setLatestParsedReceipt] = useState<ParsedReceipt | null>(null);
   const [isParsingReceipt, setIsParsingReceipt] = useState(false);
+
+  const [memories, setMemories] = useState<MemoryFact[]>([]);
+  const [memorySearchQuery, setMemorySearchQuery] = useState('');
+  const [newMemoryFact, setNewMemoryFact] = useState('');
+  const [newMemoryCategory, setNewMemoryCategory] = useState<MemoryFact['category']>('preference');
+  const [backupFeedback, setBackupFeedback] = useState<string | null>(null);
 
   const [omniChannel, setOmniChannel] = useState<'telegram' | 'whatsapp' | 'slack' | 'voice_note'>('telegram');
   const [omniInputText, setOmniInputText] = useState('');
@@ -487,9 +495,167 @@ export default function AssistantApp() {
         const rData = await rcptRes.json();
         setParsedReceipts(rData.receipts || []);
       }
+
+      // 19. Fetch persistent memories
+      const memRes = await fetch('/api/memory');
+      if (memRes.ok) {
+        const mData = await memRes.json();
+        setMemories(mData.memories || []);
+      }
     } catch (err) {
       console.error('Failed to load initial data:', err);
     }
+  };
+
+  const handleSearchMemories = async (q: string) => {
+    setMemorySearchQuery(q);
+    try {
+      const res = await fetch(`/api/memory?q=${encodeURIComponent(q)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setMemories(data.memories || []);
+      }
+    } catch (err) {
+      console.error('Failed to search memories:', err);
+    }
+  };
+
+  const handleCreateMemory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMemoryFact.trim()) return;
+    try {
+      const res = await fetch('/api/memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fact: newMemoryFact.trim(),
+          category: newMemoryCategory,
+          source: 'user'
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMemories(data.memories || []);
+        setNewMemoryFact('');
+      }
+    } catch (err) {
+      console.error('Failed to save memory:', err);
+    }
+  };
+
+  const handleDeleteMemory = async (id: string) => {
+    try {
+      const res = await fetch(`/api/memory?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMemories(data.memories || []);
+      }
+    } catch (err) {
+      console.error('Failed to delete memory:', err);
+    }
+  };
+
+  const handleExportBackup = async () => {
+    try {
+      const res = await fetch('/api/backup');
+      if (res.ok) {
+        const data = await res.json();
+        const blob = new Blob([JSON.stringify(data.snapshot, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `virtual_assistant_backup_${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setBackupFeedback('✓ Exported assistant state backup successfully.');
+      }
+    } catch (err: any) {
+      setBackupFeedback(`⚠️ Backup export failed: ${err.message}`);
+    }
+  };
+
+  const handleImportBackupFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || '{}'));
+        const res = await fetch('/api/backup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ snapshot: parsed })
+        });
+        const data = await res.json();
+        if (res.ok && data.restored) {
+          setBackupFeedback(
+            `✓ Restored ${data.counts.memories} memories, ${data.counts.tasks} tasks, ${data.counts.contacts} contacts, and ${data.counts.expenses} expenses.`
+          );
+          fetchInitialData();
+        } else {
+          setBackupFeedback(`⚠️ Restore failed: ${data.error || 'Invalid snapshot'}`);
+        }
+      } catch (err: any) {
+        setBackupFeedback(`⚠️ Invalid JSON backup file: ${err.message}`);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleReceiptFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type.startsWith('text/') || file.name.endsWith('.txt')) {
+      const textReader = new FileReader();
+      textReader.onload = () => {
+        setReceiptRawInput(String(textReader.result || ''));
+        setReceiptFileData({ base64: '', mimeType: 'text/plain', name: file.name });
+      };
+      textReader.readAsText(file);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = String(reader.result || '');
+      setReceiptFileData({
+        base64,
+        mimeType: file.type || 'application/pdf',
+        name: file.name
+      });
+      if (!receiptRawInput.trim()) {
+        setReceiptRawInput(`Uploaded Receipt File: ${file.name}`);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleWorkspaceFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const content = String(reader.result || '');
+        const res = await fetch('/api/files', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filePath: file.name,
+            content
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setWorkspaceFiles({ baseDir: data.baseDir, files: data.files || [] });
+        }
+      } catch (err) {
+        console.error('Failed to upload workspace file:', err);
+      }
+    };
+    reader.readAsText(file);
   };
 
   const handleUpdateVoiceProfile = async (updated: Partial<ExecutiveVoiceProfile>) => {
@@ -617,18 +783,24 @@ export default function AssistantApp() {
 
   const handleParseReceipt = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!receiptRawInput.trim()) return;
+    if (!receiptRawInput.trim() && !receiptFileData?.base64) return;
     setIsParsingReceipt(true);
     try {
       const res = await fetch('/api/receipts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rawText: receiptRawInput, sourceFileName: 'scanned_receipt.txt' })
+        body: JSON.stringify({
+          rawText: receiptRawInput,
+          sourceFileName: receiptFileData?.name || 'scanned_receipt.txt',
+          documentBase64: receiptFileData?.base64 || undefined,
+          mimeType: receiptFileData?.mimeType || undefined
+        })
       });
       if (res.ok) {
         const data = await res.json();
         setLatestParsedReceipt(data.receipt);
         setParsedReceipts(prev => [data.receipt, ...prev]);
+        setReceiptFileData(null);
         fetchInitialData();
       }
     } catch (err) {
@@ -1217,6 +1389,17 @@ export default function AssistantApp() {
           }`}
         >
           <FileSearch className="w-4 h-4 text-cyan-500" /> Cloud Documents & Drive ({cloudDocuments.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('memory')}
+          className={`flex items-center gap-2 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors shrink-0 ${
+            activeTab === 'memory'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-violet-500" /> Memory & Backup ({memories.length})
         </button>
 
         <button
@@ -2857,15 +3040,24 @@ export default function AssistantApp() {
                 <h2 className="text-lg font-bold">Google Calendar Schedule</h2>
                 <p className="text-xs text-zinc-500">Upcoming calendar events, attendee coordination, and meeting scheduling controls.</p>
               </div>
-              <button
-                onClick={() => {
-                  setActiveTab('chat');
-                  handleSendMessage('Check my upcoming calendar events for this week');
-                }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow-xs hover:bg-indigo-700 transition"
-              >
-                <CalendarIcon className="w-3.5 h-3.5" /> Ask Assistant to Schedule
-              </button>
+              <div className="flex items-center gap-2">
+                <a
+                  href="/api/calendar/ics"
+                  download="executive_calendar.ics"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
+                >
+                  <FileCheck className="w-3.5 h-3.5 text-emerald-600" /> Export .ics Calendar
+                </a>
+                <button
+                  onClick={() => {
+                    setActiveTab('chat');
+                    handleSendMessage('Check my upcoming calendar events for this week');
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow-xs hover:bg-indigo-700 transition"
+                >
+                  <CalendarIcon className="w-3.5 h-3.5" /> Ask Assistant to Schedule
+                </button>
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -2930,15 +3122,25 @@ export default function AssistantApp() {
                   {workspaceFiles.baseDir || 'data/workspace'}
                 </code>
               </div>
-              <button
-                onClick={() => {
-                  setActiveTab('chat');
-                  handleSendMessage('Save a summary of my tasks to workspace/summary.txt');
-                }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow-xs hover:bg-indigo-700 transition"
-              >
-                <Folder className="w-3.5 h-3.5" /> Ask Assistant to Write File
-              </button>
+              <div className="flex items-center gap-2">
+                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition cursor-pointer">
+                  <Plus className="w-3.5 h-3.5 text-emerald-600" /> Upload File to Sandbox
+                  <input
+                    type="file"
+                    onChange={handleWorkspaceFileUpload}
+                    className="hidden"
+                  />
+                </label>
+                <button
+                  onClick={() => {
+                    setActiveTab('chat');
+                    handleSendMessage('Save a summary of my tasks to workspace/summary.txt');
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow-xs hover:bg-indigo-700 transition"
+                >
+                  <Folder className="w-3.5 h-3.5" /> Ask Assistant to Write File
+                </button>
+              </div>
             </div>
 
             <div className="overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs">
@@ -3789,9 +3991,24 @@ export default function AssistantApp() {
                 
                 <form onSubmit={handleParseReceipt} className="space-y-3 text-xs">
                   <div>
+                    <label className="font-semibold block mb-1">Upload Receipt Image / PDF (Vision OCR) or Text File</label>
+                    <input
+                      type="file"
+                      accept=".pdf,.png,.jpg,.jpeg,.webp,.txt"
+                      onChange={handleReceiptFileUpload}
+                      className="w-full text-[11px] file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 dark:file:bg-emerald-950 dark:file:text-emerald-300"
+                    />
+                    {receiptFileData && (
+                      <div className="mt-1 text-[11px] text-emerald-600 font-medium">
+                        Attached: {receiptFileData.name} ({receiptFileData.mimeType})
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
                     <label className="font-semibold block mb-1">Receipt / Invoice Text</label>
                     <textarea
-                      rows={6}
+                      rows={5}
                       placeholder={`Amazon Web Services Invoice\nDate: 2026-10-14\nEC2 Compute: $412.50\nAurora PostgreSQL: $185.00\nTax: $52.77\nTotal Amount Due: $650.27 USD`}
                       value={receiptRawInput}
                       onChange={(e) => setReceiptRawInput(e.target.value)}
@@ -3844,6 +4061,129 @@ export default function AssistantApp() {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Executive Long-Term Memory & State Backup Tab */}
+        {activeTab === 'memory' && (
+          <div className="p-8 max-w-5xl mx-auto space-y-6 overflow-y-auto h-full">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-violet-500" />
+                  Executive Long-Term Memory & State Backup
+                </h2>
+                <p className="text-xs text-zinc-500">
+                  Hybrid BM25 + vector semantic memory store automatically injected into AI planning prompts, plus 1-click JSON backup & restore.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportBackup}
+                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-xs"
+                >
+                  <FileCheck className="w-4 h-4" /> Export JSON Backup
+                </button>
+                <label className="px-3.5 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5">
+                  <Plus className="w-4 h-4 text-emerald-600" /> Restore JSON Backup
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleImportBackupFile}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {backupFeedback && (
+              <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-xs font-medium text-indigo-800 dark:text-indigo-200">
+                {backupFeedback}
+              </div>
+            )}
+
+            {/* Add Memory Form & Semantic Search */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+              <form
+                onSubmit={handleCreateMemory}
+                className="md:col-span-8 p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs flex flex-wrap gap-2 items-center"
+              >
+                <input
+                  type="text"
+                  placeholder="Add durable executive fact (e.g., Prefers aisle seats on Delta and morning meetings)..."
+                  value={newMemoryFact}
+                  onChange={(e) => setNewMemoryFact(e.target.value)}
+                  className="flex-1 text-xs px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
+                />
+                <select
+                  value={newMemoryCategory}
+                  onChange={(e) => setNewMemoryCategory(e.target.value as any)}
+                  className="text-xs px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 font-medium"
+                >
+                  <option value="preference">Preference</option>
+                  <option value="scheduling">Scheduling</option>
+                  <option value="travel">Travel</option>
+                  <option value="relationship">Relationship</option>
+                  <option value="work">Work</option>
+                  <option value="general">General</option>
+                </select>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold transition"
+                >
+                  Save Fact
+                </button>
+              </form>
+
+              <div className="md:col-span-4 p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs flex items-center">
+                <div className="relative w-full">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-zinc-400" />
+                  <input
+                    type="text"
+                    placeholder="Semantic memory search..."
+                    value={memorySearchQuery}
+                    onChange={(e) => handleSearchMemories(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Memories List */}
+            <div className="space-y-2.5">
+              {memories.length === 0 ? (
+                <div className="p-8 text-center rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 text-xs text-zinc-400">
+                  No matching executive memory facts found.
+                </div>
+              ) : (
+                memories.map((mem) => (
+                  <div
+                    key={mem.id}
+                    className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs flex items-center justify-between gap-4"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-300">
+                          {mem.category}
+                        </span>
+                        <span className="text-[11px] text-zinc-400 font-mono">
+                          {new Date(mem.updatedAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="text-xs font-medium text-zinc-800 dark:text-zinc-200">{mem.fact}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteMemory(mem.id)}
+                      className="px-2.5 py-1 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition"
+                    >
+                      Forget
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}

@@ -2,7 +2,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)](https://nextjs.org/)
-[![Tests](https://img.shields.io/badge/Tests-136%2F136%20Passing-emerald.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-141%2F141%20Passing-emerald.svg)](tests/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 An **evidence-driven, privacy-first, extensible, self-hostable autonomous AI Virtual Assistant**.
@@ -38,6 +38,8 @@ For a full breakdown of what is implemented versus the long-term vision, see the
 | **Post-Tool AI Synthesis Loop** | :white_check_mark: Verified | Feeds actual tool outputs back into the active LLM (`TaskPlanner.synthesizeExecutionResponse`) to generate grounded natural-language executive answers |
 | **Hybrid Semantic RAG (BM25 + Vectors)** | :white_check_mark: Verified | Combines exact phrase boost, stemmed BM25 + domain synonym expansion, and cosine vector similarity (`SemanticSearchEngine`) across Memories and Drive docs |
 | **Inline Action Parameter Editing** | :white_check_mark: Verified | Edit tool arguments (e.g., email recipient, subject, body, or meeting time) inline before approving paused actions (`modifiedArguments`) |
+| **Memory Manager UI & JSON State Backup** | :white_check_mark: Verified | Dedicated UI tab for semantic memory browsing/CRUD (`/api/memory`), 1-click JSON snapshot export & restore (`/api/backup`), and `.ics` calendar export (`/api/calendar/ics`) |
+| **Self-Healing Execution & Slack/WhatsApp Outbound** | :white_check_mark: Verified | Automatic parameter coercion, transient error retry backoff (`WorkflowExecutionEngine`), API secret masking (`••••abcd`), sliding-window rate limiting, and live Slack/WhatsApp outbound delivery |
 | **Web Session Vault Lock Screen** | :white_check_mark: Verified | `HttpOnly` cookie session login (`/api/auth/session`) and lock-screen modal when `ASSISTANT_ACCESS_TOKEN` is enabled |
 | **AES-256-GCM Credential Vault** | :white_check_mark: Verified | Encrypts stored API keys (`geminiApiKey`, `openaiApiKey`, `telegramBotToken`, `openWeightApiKey`) and OAuth tokens at rest using `scryptSync` + AES-256-GCM with atomic file writes |
 | **Persistent Long-Term Memory** | :white_check_mark: Verified | Stores & recalls executive preferences, VIP notes, and travel habits (`memory_remember_fact` / `memory_recall_facts`) and injects them into AI planning prompts |
@@ -91,7 +93,7 @@ For a full breakdown of what is implemented versus the long-term vision, see the
 # 1. Install dependencies
 npm install
 
-# 2. Run test suite (136 tests passing across 26 suites)
+# 2. Run test suite (141 tests passing across 26 suites)
 npm test
 
 # 3. Start development server

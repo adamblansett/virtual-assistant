@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AppStorage } from '@/lib/storage/db';
 import { WorkflowExecutionEngine } from '@/lib/engine/executor';
+import { SecurityAuth } from '@/lib/security/auth';
 
-export async function GET() {
+export async function GET(req?: NextRequest) {
+  const auth = SecurityAuth.verifyApiRequest(req);
+  if (!auth.authorized) {
+    return NextResponse.json({ error: auth.reason || 'Unauthorized' }, { status: auth.status || 401 });
+  }
+
   AppStorage.initialize();
-  const config = AppStorage.getIntegrationConfig();
+  const rawConfig = AppStorage.getIntegrationConfig();
+  const config = SecurityAuth.maskIntegrationConfig(rawConfig);
   const adapter = WorkflowExecutionEngine.getGmailAdapter();
   const gmailMeta = await adapter.metadata();
 
@@ -26,10 +33,16 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = SecurityAuth.verifyApiRequest(req);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.reason || 'Unauthorized' }, { status: auth.status || 401 });
+    }
+
     const body = await req.json();
     AppStorage.initialize();
     AppStorage.updateIntegrationConfig(body);
-    return NextResponse.json({ success: true, config: AppStorage.getIntegrationConfig() });
+    const masked = SecurityAuth.maskIntegrationConfig(AppStorage.getIntegrationConfig());
+    return NextResponse.json({ success: true, config: masked });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 400 });
   }

@@ -1,11 +1,11 @@
 /**
  * Omnichannel & Voice Note Ingestion Service.
  * 
- * Replaces human assistant communication reception:
+ * Replaces human assistant communication reception & outbound delivery:
  * - Ingests requests across Telegram, WhatsApp, Slack, SMS, and audio voice notes
  * - Transcribes incoming audio voice notes via Gemini Multimodal Audio or OpenAI Whisper (with deterministic fallback)
  * - Dispatches requests through the four-phase execution pipeline using the active AI provider
- * - Returns formatted, channel-optimized responses and mobile authorization prompts
+ * - Delivers outbound replies to Slack (Webhook / Bot API) and WhatsApp (Meta Cloud API) when configured
  */
 
 import { OmnichannelMessage, OmnichannelResponse } from '@/types';
@@ -14,7 +14,140 @@ import { WorkflowExecutionEngine } from '@/lib/engine/executor';
 import { TaskPlanner } from '@/lib/planner/planner';
 import { AppStorage } from '@/lib/storage/db';
 
+export interface OmnichannelOutboundRecord {
+  channel: string;
+  recipientId: string;
+  text: string;
+  mode: 'live_api' | 'local_log';
+  timestamp: string;
+}
+
 export class OmnichannelIngestionService {
+  private static outboundLog: OmnichannelOutboundRecord[] = [];
+
+  public static getOutboundLog(): OmnichannelOutboundRecord[] {
+    return [...this.outboundLog];
+  }
+
+  public static clearOutboundLog(): void {
+    this.outboundLog = [];
+  }
+
+  /**
+   * Sends a message to Slack via SLACK_WEBHOOK_URL or SLACK_BOT_TOKEN when configured.
+   */
+  public static async dispatchSlackMessage(
+    channelOrUser: string,
+    text: string
+  ): Promise<{ delivered: boolean; mode: 'live_api' | 'local_log' }> {
+    const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+    const botToken = process.env.SLACK_BOT_TOKEN;
+
+    if (webhookUrl) {
+      try {
+        const res = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, channel: channelOrUser })
+        });
+        if (res.ok) {
+          this.outboundLog.push({
+            channel: 'slack',
+            recipientId: channelOrUser,
+            text,
+            mode: 'live_api',
+            timestamp: new Date().toISOString()
+          });
+          return { delivered: true, mode: 'live_api' };
+        }
+      } catch {
+        // Fallback below
+      }
+    } else if (botToken) {
+      try {
+        const res = await fetch('https://slack.com/api/chat.postMessage', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${botToken}`
+          },
+          body: JSON.stringify({ channel: channelOrUser, text })
+        });
+        if (res.ok) {
+          this.outboundLog.push({
+            channel: 'slack',
+            recipientId: channelOrUser,
+            text,
+            mode: 'live_api',
+            timestamp: new Date().toISOString()
+          });
+          return { delivered: true, mode: 'live_api' };
+        }
+      } catch {
+        // Fallback below
+      }
+    }
+
+    this.outboundLog.push({
+      channel: 'slack',
+      recipientId: channelOrUser,
+      text,
+      mode: 'local_log',
+      timestamp: new Date().toISOString()
+    });
+    return { delivered: true, mode: 'local_log' };
+  }
+
+  /**
+   * Sends a message to WhatsApp via Meta WhatsApp Cloud API (WHATSAPP_ACCESS_TOKEN & WHATSAPP_PHONE_NUMBER_ID).
+   */
+  public static async dispatchWhatsAppMessage(
+    recipientPhone: string,
+    text: string
+  ): Promise<{ delivered: boolean; mode: 'live_api' | 'local_log' }> {
+    const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+    const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+    if (accessToken && phoneId) {
+      try {
+        const res = await fetch(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            to: recipientPhone,
+            type: 'text',
+            text: { body: text }
+          })
+        });
+        if (res.ok) {
+          this.outboundLog.push({
+            channel: 'whatsapp',
+            recipientId: recipientPhone,
+            text,
+            mode: 'live_api',
+            timestamp: new Date().toISOString()
+          });
+          return { delivered: true, mode: 'live_api' };
+        }
+      } catch {
+        // Fallback below
+      }
+    }
+
+    this.outboundLog.push({
+      channel: 'whatsapp',
+      recipientId: recipientPhone,
+      text,
+      mode: 'local_log',
+      timestamp: new Date().toISOString()
+    });
+    return { delivered: true, mode: 'local_log' };
+  }
+
   /**
    * Transcribes base64-encoded audio payload using Gemini Multimodal Audio API when configured,
    * falling back to deterministic transcription when offline.
@@ -85,6 +218,18 @@ export class OmnichannelIngestionService {
     return 'Summarize my schedule and top priority tasks for today';
   }
 
+  private static async deliverReplyToChannel(
+    channel: OmnichannelMessage['channel'],
+    recipientId: string,
+    replyText: string
+  ): Promise<void> {
+    if (channel === 'slack') {
+      await this.dispatchSlackMessage(recipientId, replyText);
+    } else if (channel === 'whatsapp') {
+      await this.dispatchWhatsAppMessage(recipientId, replyText);
+    }
+  }
+
   /**
    * Ingests and processes an inbound message from any connected communication channel.
    */
@@ -112,10 +257,12 @@ export class OmnichannelIngestionService {
     const plan = await planner.createPlan(promptText);
 
     if (plan.actions.length === 0) {
+      const replyText = plan.summary || 'Understood. How else can I assist you?';
+      await this.deliverReplyToChannel(message.channel, message.senderId, replyText);
       return {
         channel: message.channel,
         recipientId: message.senderId,
-        replyText: plan.summary || 'Understood. How else can I assist you?',
+        replyText,
         requiresApproval: false
       };
     }
@@ -132,6 +279,7 @@ export class OmnichannelIngestionService {
       }
 
       const replyText = `⚠️ Authorization Required:\n"${promptText}" requires your explicit approval to proceed.\n\nReply "APPROVE ${approvalToken}" or tap to authorize.`;
+      await this.deliverReplyToChannel(message.channel, message.senderId, replyText);
 
       return {
         channel: message.channel,
@@ -144,6 +292,7 @@ export class OmnichannelIngestionService {
     }
 
     const replyText = `✓ Completed (${message.channel.toUpperCase()}):\n${summary.explanation}`;
+    await this.deliverReplyToChannel(message.channel, message.senderId, replyText);
 
     return {
       channel: message.channel,

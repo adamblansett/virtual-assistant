@@ -516,9 +516,25 @@ export class AppStorage {
   public static updateIntegrationConfig(updates: Partial<AppState['integrationConfig']>): void {
     this.initialize();
     if (!this.state) return;
+
+    const sanitizedUpdates: Partial<AppState['integrationConfig']> = { ...updates };
+    const secretKeys: Array<'geminiApiKey' | 'openaiApiKey' | 'telegramBotToken' | 'openWeightApiKey'> = [
+      'geminiApiKey',
+      'openaiApiKey',
+      'telegramBotToken',
+      'openWeightApiKey'
+    ];
+
+    for (const k of secretKeys) {
+      const val = sanitizedUpdates[k];
+      if (typeof val === 'string' && val.startsWith('••••')) {
+        delete sanitizedUpdates[k];
+      }
+    }
+
     this.state.integrationConfig = {
       ...this.state.integrationConfig,
-      ...updates
+      ...sanitizedUpdates
     };
     this.save();
   }
@@ -841,6 +857,133 @@ export class AppStorage {
     delete this.state.memories[id];
     this.save();
     return true;
+  }
+
+  /**
+   * Exports a portable, secret-redacted backup snapshot of the executive assistant's state.
+   */
+  public static exportSnapshot(): Record<string, any> {
+    this.initialize();
+    const s = this.state || this.getDefaultState();
+    return {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      preferences: s.preferences,
+      voiceProfile: s.voiceProfile,
+      memories: Object.values(s.memories || {}),
+      tasks: Object.values(s.tasks || {}),
+      contacts: Object.values(s.contacts || {}),
+      expenses: Object.values(s.expenses || {}),
+      trips: Object.values(s.trips || {}),
+      documents: Object.values(s.documents || {}),
+      scheduledJobs: Object.values(s.scheduledJobs || {})
+    };
+  }
+
+  /**
+   * Restores or merges an exported snapshot into the active persistent storage.
+   */
+  public static importSnapshot(payload: Record<string, any>): {
+    restored: boolean;
+    counts: {
+      memories: number;
+      tasks: number;
+      contacts: number;
+      expenses: number;
+      trips: number;
+      documents: number;
+    };
+  } {
+    this.initialize();
+    if (!this.state) this.state = this.getDefaultState();
+
+    if (payload.preferences && typeof payload.preferences === 'object') {
+      this.state.preferences = UserPreferencesSchema.parse({
+        ...this.state.preferences,
+        ...payload.preferences
+      });
+    }
+
+    if (payload.voiceProfile && typeof payload.voiceProfile === 'object') {
+      this.state.voiceProfile = ExecutiveVoiceProfileSchema.parse({
+        ...this.state.voiceProfile,
+        ...payload.voiceProfile
+      });
+    }
+
+    let memoriesCount = 0;
+    if (Array.isArray(payload.memories)) {
+      for (const m of payload.memories) {
+        if (m && m.id && m.fact) {
+          this.state.memories[m.id] = m;
+          memoriesCount++;
+        }
+      }
+    }
+
+    let tasksCount = 0;
+    if (Array.isArray(payload.tasks)) {
+      for (const t of payload.tasks) {
+        if (t && t.id && t.title) {
+          this.state.tasks[t.id] = t;
+          tasksCount++;
+        }
+      }
+    }
+
+    let contactsCount = 0;
+    if (Array.isArray(payload.contacts)) {
+      for (const c of payload.contacts) {
+        if (c && c.id && c.name) {
+          this.state.contacts[c.id] = c;
+          contactsCount++;
+        }
+      }
+    }
+
+    let expensesCount = 0;
+    if (Array.isArray(payload.expenses)) {
+      for (const e of payload.expenses) {
+        if (e && e.id && typeof e.amount === 'number') {
+          this.state.expenses[e.id] = e;
+          expensesCount++;
+        }
+      }
+    }
+
+    let tripsCount = 0;
+    if (Array.isArray(payload.trips)) {
+      for (const tr of payload.trips) {
+        if (tr && tr.id && tr.destination) {
+          this.state.trips[tr.id] = tr;
+          tripsCount++;
+        }
+      }
+    }
+
+    let docsCount = 0;
+    if (Array.isArray(payload.documents)) {
+      for (const d of payload.documents) {
+        if (d && d.id && d.title) {
+          this.state.documents[d.id] = d;
+          docsCount++;
+        }
+      }
+    }
+
+    this.save();
+
+    return {
+      restored: true,
+      counts: {
+        memories: memoriesCount,
+        tasks: tasksCount,
+        contacts: contactsCount,
+        expenses: expensesCount,
+        trips: tripsCount,
+        documents: docsCount
+      }
+    };
   }
 
   public static reset(): void {
