@@ -94,4 +94,27 @@ Unlike chatbot interfaces that provide suggestions or explain how a human can do
 - **Multi-Agent Specialist Coordinator (`SpecialistCoordinatorService`)**: Decomposes compound multi-domain executive requests across specialized sub-agents (`CommsSpecialist`, `CalendarTravelSpecialist`, `FinanceLegalSpecialist`, `ResearchMemorySpecialist`) and merges their actions into a unified `TaskPlan`.
 - **Outbound Event Webhook Bus (`OutboundWebhookBus` & `/api/webhooks/outbound`)**: Emits HMAC-SHA256 signed lifecycle events (`plan.succeeded`, `approval.requested`, `routine.completed`, `conflict.detected`, `expense.reconciled`) to external automation pipelines (n8n, Zapier, Make, Home Assistant).
 - **Live SSE UI Streaming, `Cmd+K` Command Palette & Accounting CSV/Markdown Exports**: Real-time `ReadableStream` SSE consumer in `page.tsx`, keyboard-driven `Cmd+K` / `Ctrl+K` Executive Command Palette, and RFC 4180 CSV + Markdown expense exports (`/api/expenses/export`).
-- **150 automated unit, integration, security, eval, and E2E tests passing across 26 test suites**.
+
+### Phase 9: Autonomous Conflict Auto-Fixer, Shadow Draft Engine, Meeting Audio Diarization & Multi-Calendar Federation (:white_check_mark: Completed)
+- **Autonomous Conflict Auto-Fixer & Rescheduler (`ConflictResolverService` & `/api/assistant/conflicts/resolve`)**:
+  - Automatically heals buffer violations and overlapping events by locating free buffer-compliant slots and executing calendar rescheduling.
+  - Resolves duplicate and anomalous expenses by tagging flagged items for executive review with detailed audit notes.
+  - Automatically drafts VIP reconnect reach-outs via `ExecutiveGhostwriterService` when relationship touchpoint cadences are overdue.
+  - Provides 1-click "Auto-Resolve All" in the Conflict Radar UI and programmatic bulk resolution.
+- **"Shadow Executive" Background Draft Engine (`ShadowDraftService` & `/api/assistant/shadow-drafts`)**:
+  - Autonomously scans unread emails from VIP contacts and generates context-grounded, in-voice response drafts before the executive asks.
+  - Full approval lifecycle: `pending_review`, `approved_sent`, `revised`, and `discarded` with live Gmail delivery.
+  - Dispatches interactive Telegram approval requests with instant one-tap buttons (`appr_shadow:<id>` / `disc_shadow:<id>`).
+  - Interactive UI card in Executive Dashboard for 1-click sending, inline revisions, and discarding.
+- **Meeting Audio Diarization & Action Extraction (`MeetingAudioService` & `/api/audio/meeting-recorder`)**:
+  - Processes raw meeting audio recordings or transcripts, performing speaker diarization, executive decision summaries, and action item extraction.
+  - Automatically extracts commitments with assignees, due dates, and priority, saving them directly as structured tasks in `AppStorage`.
+  - Generates ready-to-send formatted email recaps for all meeting attendees.
+- **Multi-Calendar Federation & Privacy Masking (`MultiCalendarFederationService` & `/api/calendar/federation`)**:
+  - Connects secondary personal/family/board calendars (e.g., Apple iCloud, personal Google, Outlook).
+  - Syncs external busy windows onto the primary executive calendar as privacy-masked `"Busy (Personal Commitment)"` blocks.
+  - Prevents external work colleagues from double-booking personal appointments while preserving strict executive privacy.
+- **UI Integration & Command Palette Extensions**:
+  - Added Conflict Auto-Resolve actions, Shadow Draft cards with status pills, and Personal Calendar Sync indicators in `page.tsx`.
+  - Added `Cmd+K` shortcuts: "Auto-Fix All Schedule Conflicts", "Review Shadow Drafts", "Sync Personal Calendar".
+- **164 automated unit, integration, security, eval, and E2E tests passing across 27 test suites**.

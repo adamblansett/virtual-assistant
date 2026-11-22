@@ -167,6 +167,41 @@ export class MockAIProvider implements IAIProviderAdapter {
           }
         });
       }
+    } else if (lower.includes('resolve conflict') || lower.includes('auto-fix conflict') || lower.includes('fix conflicts') || lower.includes('auto resolve')) {
+      text = "Resolving detected calendar conflicts, buffer violations, and ledger anomalies...";
+      toolCalls.push({
+        id: `call_${Date.now()}_res_conf`,
+        name: 'assistant_resolve_conflict',
+        arguments: {
+          resolveAll: true
+        }
+      });
+    } else if (lower.includes('shadow draft') || lower.includes('zero-touch draft') || lower.includes('scan drafts')) {
+      text = "Scanning unread communications and preparing in-voice shadow drafts...";
+      toolCalls.push({
+        id: `call_${Date.now()}_shadow_scan`,
+        name: 'assistant_scan_shadow_drafts',
+        arguments: {}
+      });
+    } else if (lower.includes('federat') || lower.includes('personal calendar') || lower.includes('sync busy block')) {
+      text = "Synchronizing external personal calendar and projecting privacy-masked busy blocks...";
+      toolCalls.push({
+        id: `call_${Date.now()}_fed_cal`,
+        name: 'calendar_federate_busy_blocks',
+        arguments: {
+          action: 'sync'
+        }
+      });
+    } else if (lower.includes('meeting audio') || lower.includes('meeting commitments') || lower.includes('diariz')) {
+      text = "Processing meeting audio transcript and extracting actionable commitments...";
+      toolCalls.push({
+        id: `call_${Date.now()}_mtg_audio`,
+        name: 'meeting_process_audio_transcript',
+        arguments: {
+          meetingTitle: 'Executive Strategy Session',
+          transcript: lastUserMessage
+        }
+      });
     } else if (lower.includes('conflict') || lower.includes('anomal') || lower.includes('double-book') || lower.includes('overlap')) {
       text = "Scanning your calendar, travel itineraries, expenses, and VIP cadences for conflicts and anomalies...";
       toolCalls.push({

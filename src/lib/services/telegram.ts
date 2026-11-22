@@ -134,6 +134,33 @@ export class TelegramBotService {
       const data = cq.data || '';
       const chatId = cq.message?.chat?.id;
 
+      if (data.startsWith('appr_shadow:') || data.startsWith('disc_shadow:')) {
+        const approved = data.startsWith('appr_shadow:');
+        const draftId = data.split(':')[1];
+        const { ShadowDraftService } = await import('./shadow_drafts');
+        if (approved) {
+          const sendRes = await ShadowDraftService.approveAndSendDraft(draftId);
+          if (chatId) {
+            await this.sendMessage(
+              chatId,
+              sendRes.success
+                ? `✓ <b>Shadow Draft Sent</b>: Email delivered successfully.`
+                : `✕ <b>Send Failed</b>: ${sendRes.error}`
+            );
+          }
+        } else {
+          ShadowDraftService.discardDraft(draftId);
+          if (chatId) {
+            await this.sendMessage(chatId, `✕ <b>Shadow Draft Discarded</b>.`);
+          }
+        }
+        return {
+          handled: true,
+          type: 'callback_query',
+          response: { shadowDraftId: draftId, approved }
+        };
+      }
+
       if (data.startsWith('appr:') || data.startsWith('rejt:')) {
         const approved = data.startsWith('appr:');
         const token = data.slice(5);

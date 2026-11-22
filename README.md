@@ -2,7 +2,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)](https://nextjs.org/)
-[![Tests](https://img.shields.io/badge/Tests-150%2F150%20Passing-emerald.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-164%2F164%20Passing-emerald.svg)](tests/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 An **evidence-driven, privacy-first, extensible, self-hostable autonomous AI Virtual Assistant**.
@@ -34,6 +34,10 @@ For a full breakdown of what is implemented versus the long-term vision, see the
 
 | Capability | Status | Implementation Details |
 | :--- | :--- | :--- |
+| **Autonomous Conflict Auto-Fixer** | :white_check_mark: Verified | Auto-reschedules overlapping calendar events, fixes 15m buffer violations, flags anomalous expenses, and auto-drafts overdue VIP catch-ups (`ConflictResolverService`, `/api/assistant/conflicts/resolve`) |
+| **Shadow Executive Background Drafts** | :white_check_mark: Verified | Proactively monitors unread VIP emails and prepares in-voice drafts before being asked, with Telegram inline approval buttons (`appr_shadow:` / `disc_shadow:`) and dashboard cards (`ShadowDraftService`, `/api/assistant/shadow-drafts`) |
+| **Meeting Audio Diarization & Actions** | :white_check_mark: Verified | Processes meeting audio recordings/transcripts, segments speakers, summarizes strategic decisions, saves tasks in `AppStorage`, and drafts formatted attendee recaps (`MeetingAudioService`, `/api/audio/meeting-recorder`) |
+| **Multi-Calendar Federation & Masking** | :white_check_mark: Verified | Federates external personal/board calendars, syncing privacy-masked `"Busy (Personal Commitment)"` blocks to the executive calendar to prevent double-booking (`MultiCalendarFederationService`, `/api/calendar/federation`) |
 | **Open-Weight Models (Ollama / vLLM)** | :white_check_mark: Verified | Local & self-hosted open-weight LLM adapter (`qwen2.5:14b`, `qwen2.5:7b`, `qwen3:8b`, `llama3.1:8b`, `llama3.3:70b`, `mistral-small:24b`, `gemma3:12b`, `gemma3:27b`), `<think>` tag stripping, JSON tool fallback, and 1-click UI `ollama pull` |
 | **Proactive Conflict & Anomaly Radar** | :white_check_mark: Verified | Scans calendar overlaps, 15m buffer violations, travel-vs-meeting city mismatches, duplicate expense charges, and VIP drift (`ConflictDetectorService`, `/api/assistant/conflicts`) |
 | **Multi-Agent Specialist Coordinator** | :white_check_mark: Verified | Decomposes compound multi-domain instructions across `CommsSpecialist`, `CalendarTravelSpecialist`, `FinanceLegalSpecialist`, and `ResearchMemorySpecialist` (`SpecialistCoordinatorService`) |

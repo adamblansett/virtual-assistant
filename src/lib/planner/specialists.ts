@@ -53,12 +53,12 @@ export class SpecialistCoordinatorService {
   public static classifySpecialist(clause: string): SpecialistDomain {
     const lower = clause.toLowerCase();
     if (
-      /\b(email|gmail|inbox|triage|ghostwrite|draft\s+reply|send\s+message)\b/.test(lower)
+      /\b(email|gmail|inbox|triage|ghostwrite|draft\s+reply|send\s+message|shadow\s+draft|drafts)\b/.test(lower)
     ) {
       return 'comms_specialist';
     }
     if (
-      /\b(calendar|schedule|meeting|slot|flight|trip|itinerary|hotel|dossier)\b/.test(lower)
+      /\b(calendar|schedule|meeting|slot|flight|trip|itinerary|hotel|dossier|conflict|buffer|federat|diariz)\b/.test(lower)
     ) {
       return 'calendar_travel_specialist';
     }

@@ -219,6 +219,28 @@ export const DriveSyncDocumentsArgsSchema = z.object({
   maxResults: z.number().min(1).max(100).default(25)
 });
 
+export const AssistantResolveConflictArgsSchema = z.object({
+  conflictId: z.string().optional(),
+  resolveAll: z.boolean().optional()
+});
+
+export const AssistantActionShadowDraftArgsSchema = z.object({
+  draftId: z.string(),
+  action: z.enum(['send', 'revise', 'discard']),
+  revisedBody: z.string().optional()
+});
+
+export const MeetingProcessAudioArgsSchema = z.object({
+  meetingTitle: z.string(),
+  transcript: z.string().optional(),
+  audioBase64: z.string().optional(),
+  attendees: z.array(z.string()).optional()
+});
+
+export const CalendarFederateBusyBlocksArgsSchema = z.object({
+  action: z.enum(['sync', 'clear']).default('sync')
+});
+
 export interface AdaptersBundle {
   gmail?: MockGmailAdapter | GmailService;
   calendar?: MockCalendarAdapter | GoogleCalendarService;
@@ -660,6 +682,56 @@ export class ToolRegistry {
       requiredPermission: 'assistant.read',
       approvalRequiredByDefault: false
     });
+
+    this.registerTool({
+      name: 'assistant_resolve_conflict',
+      integration: 'assistant',
+      description: 'Automatically resolves detected calendar conflicts, buffer violations, duplicate expenses, or overdue VIP relationships.',
+      schema: AssistantResolveConflictArgsSchema,
+      riskLevel: 'reversible_write',
+      requiredPermission: 'assistant.write',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'assistant_scan_shadow_drafts',
+      integration: 'assistant',
+      description: 'Scans unread inbox messages from VIPs and prepares in-voice shadow drafts ready for executive authorization.',
+      schema: z.object({}),
+      riskLevel: 'read',
+      requiredPermission: 'gmail.read',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'assistant_action_shadow_draft',
+      integration: 'assistant',
+      description: 'Approves and sends, revises, or discards a prepared shadow email draft.',
+      schema: AssistantActionShadowDraftArgsSchema,
+      riskLevel: 'consequential',
+      requiredPermission: 'gmail.send',
+      approvalRequiredByDefault: true
+    });
+
+    this.registerTool({
+      name: 'meeting_process_audio_transcript',
+      integration: 'assistant',
+      description: 'Processes meeting audio or dialogue transcripts to extract decisions, commitments, assignees, deadlines, and format attendee email recaps.',
+      schema: MeetingProcessAudioArgsSchema,
+      riskLevel: 'reversible_write',
+      requiredPermission: 'assistant.write',
+      approvalRequiredByDefault: false
+    });
+
+    this.registerTool({
+      name: 'calendar_federate_busy_blocks',
+      integration: 'calendar',
+      description: 'Synchronizes external personal/family calendars to create privacy-masked busy blocks on the primary calendar.',
+      schema: CalendarFederateBusyBlocksArgsSchema,
+      riskLevel: 'reversible_write',
+      requiredPermission: 'calendar.write',
+      approvalRequiredByDefault: false
+    });
   }
 
   public static registerTool(tool: ToolDefinition): void {
@@ -1020,6 +1092,51 @@ export class ToolRegistry {
       case 'assistant_detect_conflicts': {
         const { ConflictDetectorService } = await import('@/lib/services/conflict_detector');
         return await ConflictDetectorService.scanAllConflicts();
+      }
+
+      case 'assistant_resolve_conflict': {
+        const { ConflictResolverService } = await import('@/lib/services/conflict_resolver');
+        const args = AssistantResolveConflictArgsSchema.parse(rawArgs);
+        if (args.resolveAll) {
+          return await ConflictResolverService.resolveAllConflicts();
+        }
+        if (args.conflictId) {
+          return await ConflictResolverService.resolveConflict(args.conflictId);
+        }
+        return await ConflictResolverService.resolveAllConflicts();
+      }
+
+      case 'assistant_scan_shadow_drafts': {
+        const { ShadowDraftService } = await import('@/lib/services/shadow_drafts');
+        return await ShadowDraftService.scanAndGenerateShadowDrafts();
+      }
+
+      case 'assistant_action_shadow_draft': {
+        const { ShadowDraftService } = await import('@/lib/services/shadow_drafts');
+        const args = AssistantActionShadowDraftArgsSchema.parse(rawArgs);
+        if (args.action === 'send') {
+          return await ShadowDraftService.approveAndSendDraft(args.draftId);
+        } else if (args.action === 'revise' && args.revisedBody) {
+          return ShadowDraftService.reviseDraft(args.draftId, args.revisedBody);
+        } else if (args.action === 'discard') {
+          return ShadowDraftService.discardDraft(args.draftId);
+        }
+        throw new Error(`Unsupported shadow draft action: ${args.action}`);
+      }
+
+      case 'meeting_process_audio_transcript': {
+        const { MeetingAudioService } = await import('@/lib/services/meeting_audio');
+        const args = MeetingProcessAudioArgsSchema.parse(rawArgs);
+        return await MeetingAudioService.processMeetingRecord(args);
+      }
+
+      case 'calendar_federate_busy_blocks': {
+        const { MultiCalendarFederationService } = await import('@/lib/services/multi_calendar');
+        const args = CalendarFederateBusyBlocksArgsSchema.parse(rawArgs);
+        if (args.action === 'clear') {
+          return await MultiCalendarFederationService.clearFederatedBlocks();
+        }
+        return await MultiCalendarFederationService.syncBusyBlocks();
       }
 
       default: {

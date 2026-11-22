@@ -12,7 +12,7 @@ import {
   TripItinerary, MeetingDossier, RoutineExecutionResult,
   ExecutiveVoiceProfile, ExecutiveVoiceProfileSchema,
   CloudDocument, ScheduledJobConfig, ParsedReceipt,
-  MemoryFact
+  MemoryFact, ShadowDraft, FederatedCalendarConfig, FederatedBusyBlock
 } from '@/types';
 import { CryptoVault } from '@/lib/security/vault';
 import { SemanticSearchEngine } from '@/lib/ai/embeddings';
@@ -41,6 +41,9 @@ interface AppState {
   scheduledJobs: Record<string, ScheduledJobConfig>;
   receipts: Record<string, ParsedReceipt>;
   memories: Record<string, MemoryFact>;
+  shadowDrafts?: Record<string, ShadowDraft>;
+  federatedCalendars?: Record<string, FederatedCalendarConfig>;
+  federatedBusyBlocks?: Record<string, FederatedBusyBlock>;
   oauthTokens?: PersistedOAuthTokens | null;
   mobileApprovals: Record<string, { planId: string; token: string; createdAt: string; status: 'pending' | 'approved' | 'rejected' }>;
   integrationConfig: {
@@ -345,6 +348,18 @@ export class AppStorage {
       scheduledJobs: initialScheduledJobs,
       receipts: {},
       memories: initialMemories,
+      shadowDrafts: {},
+      federatedCalendars: {
+        'fed_cal_personal': {
+          id: 'fed_cal_personal',
+          name: 'Personal Google Calendar',
+          type: 'google_personal',
+          enabled: true,
+          maskTitles: true,
+          maskedPlaceholderTitle: 'Busy (Personal Commitment)'
+        }
+      },
+      federatedBusyBlocks: {},
       oauthTokens: null,
       mobileApprovals: {},
       integrationConfig: {
@@ -363,6 +378,9 @@ export class AppStorage {
       ...defaults,
       ...parsed,
       memories: parsed.memories || defaults.memories,
+      shadowDrafts: parsed.shadowDrafts || defaults.shadowDrafts || {},
+      federatedCalendars: parsed.federatedCalendars || defaults.federatedCalendars || {},
+      federatedBusyBlocks: parsed.federatedBusyBlocks || defaults.federatedBusyBlocks || {},
       oauthTokens: parsed.oauthTokens ?? null,
       integrationConfig: {
         ...defaults.integrationConfig,
@@ -868,6 +886,74 @@ export class AppStorage {
     this.initialize();
     if (!this.state?.memories?.[id]) return false;
     delete this.state.memories[id];
+    this.save();
+    return true;
+  }
+
+  // --- Phase 9: Shadow Executive Drafts ---
+  public static listShadowDrafts(): ShadowDraft[] {
+    this.initialize();
+    if (!this.state) return [];
+    return Object.values(this.state.shadowDrafts || {}).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }
+
+  public static getShadowDraft(id: string): ShadowDraft | null {
+    this.initialize();
+    if (!this.state || !this.state.shadowDrafts) return null;
+    return this.state.shadowDrafts[id] || null;
+  }
+
+  public static saveShadowDraft(draft: ShadowDraft): void {
+    this.initialize();
+    if (!this.state) this.state = this.getDefaultState();
+    if (!this.state.shadowDrafts) this.state.shadowDrafts = {};
+    this.state.shadowDrafts[draft.id] = { ...draft, updatedAt: new Date().toISOString() };
+    this.save();
+  }
+
+  public static deleteShadowDraft(id: string): boolean {
+    this.initialize();
+    if (!this.state || !this.state.shadowDrafts || !this.state.shadowDrafts[id]) return false;
+    delete this.state.shadowDrafts[id];
+    this.save();
+    return true;
+  }
+
+  // --- Phase 9: Multi-Calendar Federation ---
+  public static listFederatedCalendars(): FederatedCalendarConfig[] {
+    this.initialize();
+    if (!this.state || !this.state.federatedCalendars) return [];
+    return Object.values(this.state.federatedCalendars);
+  }
+
+  public static saveFederatedCalendar(cal: FederatedCalendarConfig): void {
+    this.initialize();
+    if (!this.state) this.state = this.getDefaultState();
+    if (!this.state.federatedCalendars) this.state.federatedCalendars = {};
+    this.state.federatedCalendars[cal.id] = cal;
+    this.save();
+  }
+
+  public static listFederatedBusyBlocks(): FederatedBusyBlock[] {
+    this.initialize();
+    if (!this.state || !this.state.federatedBusyBlocks) return [];
+    return Object.values(this.state.federatedBusyBlocks);
+  }
+
+  public static saveFederatedBusyBlock(block: FederatedBusyBlock): void {
+    this.initialize();
+    if (!this.state) this.state = this.getDefaultState();
+    if (!this.state.federatedBusyBlocks) this.state.federatedBusyBlocks = {};
+    this.state.federatedBusyBlocks[block.id] = block;
+    this.save();
+  }
+
+  public static deleteFederatedBusyBlock(id: string): boolean {
+    this.initialize();
+    if (!this.state || !this.state.federatedBusyBlocks || !this.state.federatedBusyBlocks[id]) return false;
+    delete this.state.federatedBusyBlocks[id];
     this.save();
     return true;
   }

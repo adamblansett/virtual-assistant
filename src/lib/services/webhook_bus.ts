@@ -13,6 +13,11 @@ export type AssistantWebhookEventType =
   | 'approval.requested'
   | 'routine.completed'
   | 'conflict.detected'
+  | 'conflict.resolved'
+  | 'shadow_draft.created'
+  | 'shadow_draft.sent'
+  | 'meeting.audio_processed'
+  | 'calendar.federated_synced'
   | 'expense.reconciled'
   | '*';
 

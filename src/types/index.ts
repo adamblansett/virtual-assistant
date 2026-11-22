@@ -430,3 +430,70 @@ export const MemoryFactSchema = z.object({
   updatedAt: z.string()
 });
 export type MemoryFact = z.infer<typeof MemoryFactSchema>;
+
+// --- Phase 9: Shadow Executive Drafts ---
+export const ShadowDraftSchema = z.object({
+  id: z.string(),
+  messageId: z.string(),
+  threadId: z.string().optional(),
+  recipient: z.string(),
+  subject: z.string(),
+  proposedBody: z.string(),
+  tone: z.string().default('professional'),
+  status: z.enum(['pending_review', 'approved_sent', 'revised', 'discarded']).default('pending_review'),
+  sourceInquiry: z.string(),
+  confidenceScore: z.number().default(0.95),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+export type ShadowDraft = z.infer<typeof ShadowDraftSchema>;
+
+// --- Phase 9: Multi-Calendar Federation ---
+export const FederatedCalendarConfigSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.enum(['google_personal', 'outlook_personal', 'family', 'external_ics']),
+  enabled: z.boolean().default(true),
+  maskTitles: z.boolean().default(true),
+  maskedPlaceholderTitle: z.string().default('Busy (Personal Commitment)'),
+  lastSyncedAt: z.string().optional()
+});
+export type FederatedCalendarConfig = z.infer<typeof FederatedCalendarConfigSchema>;
+
+export const FederatedBusyBlockSchema = z.object({
+  id: z.string(),
+  calendarId: z.string(),
+  primaryEventId: z.string(),
+  startTime: z.string(),
+  endTime: z.string(),
+  title: z.string(),
+  syncedAt: z.string()
+});
+export type FederatedBusyBlock = z.infer<typeof FederatedBusyBlockSchema>;
+
+// --- Phase 9: Meeting Audio & Action Extraction ---
+export const MeetingActionItemSchema = z.object({
+  id: z.string(),
+  assignee: z.string(),
+  task: z.string(),
+  deadline: z.string().optional(),
+  priority: z.enum(['high', 'medium', 'low']).default('medium'),
+  status: z.enum(['todo', 'in_progress', 'completed']).default('todo'),
+  createdTaskId: z.string().optional()
+});
+export type MeetingActionItem = z.infer<typeof MeetingActionItemSchema>;
+
+export const MeetingAudioExtractionResultSchema = z.object({
+  meetingTitle: z.string(),
+  summary: z.string(),
+  decisions: z.array(z.string()),
+  actionItems: z.array(MeetingActionItemSchema),
+  attendees: z.array(z.string()),
+  followUpEmailDraft: z.object({
+    subject: z.string(),
+    recipients: z.array(z.string()),
+    body: z.string()
+  }),
+  processedAt: z.string()
+});
+export type MeetingAudioExtractionResult = z.infer<typeof MeetingAudioExtractionResultSchema>;

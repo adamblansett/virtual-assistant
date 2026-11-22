@@ -169,6 +169,11 @@ export default function AssistantApp() {
   const [newMcpName, setNewMcpName] = useState('');
   const [newMcpUrl, setNewMcpUrl] = useState('');
   const [conflicts, setConflicts] = useState<any[]>([]);
+  const [isResolvingConflicts, setIsResolvingConflicts] = useState(false);
+  const [conflictResolveMessage, setConflictResolveMessage] = useState<string | null>(null);
+  const [shadowDrafts, setShadowDrafts] = useState<any[]>([]);
+  const [isScanningDrafts, setIsScanningDrafts] = useState(false);
+  const [federatedBusyBlocks, setFederatedBusyBlocks] = useState<any[]>([]);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [commandPaletteQuery, setCommandPaletteQuery] = useState('');
 
@@ -534,6 +539,20 @@ export default function AssistantApp() {
         const confData = await confRes.json();
         setConflicts(confData.conflicts || []);
       }
+
+      // 22. Fetch shadow drafts
+      const drfRes = await fetch('/api/assistant/shadow-drafts');
+      if (drfRes.ok) {
+        const drfData = await drfRes.json();
+        setShadowDrafts(drfData.drafts || []);
+      }
+
+      // 23. Fetch federated busy blocks
+      const fedRes = await fetch('/api/calendar/federation');
+      if (fedRes.ok) {
+        const fedData = await fedRes.json();
+        setFederatedBusyBlocks(fedData.busyBlocks || []);
+      }
     } catch (err) {
       console.error('Failed to load initial data:', err);
     }
@@ -562,6 +581,107 @@ export default function AssistantApp() {
       }
     } catch (err) {
       console.error('Failed to register MCP server:', err);
+    }
+  };
+
+  const handleAutoResolveConflicts = async () => {
+    setIsResolvingConflicts(true);
+    setConflictResolveMessage(null);
+    try {
+      const res = await fetch('/api/assistant/conflicts/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolveAll: true })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setConflictResolveMessage(`Auto-resolved ${data.totalResolved || 0} conflict(s).`);
+        const confRes = await fetch('/api/assistant/conflicts');
+        if (confRes.ok) {
+          const confData = await confRes.json();
+          setConflicts(confData.conflicts || []);
+        }
+      }
+    } catch (err: any) {
+      setConflictResolveMessage(`Failed resolving conflicts: ${err.message}`);
+    } finally {
+      setIsResolvingConflicts(false);
+    }
+  };
+
+  const handleScanShadowDrafts = async () => {
+    setIsScanningDrafts(true);
+    try {
+      const res = await fetch('/api/assistant/shadow-drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'scan_and_generate' })
+      });
+      if (res.ok) {
+        const drfRes = await fetch('/api/assistant/shadow-drafts');
+        if (drfRes.ok) {
+          const drfData = await drfRes.json();
+          setShadowDrafts(drfData.drafts || []);
+        }
+      }
+    } catch (err) {
+      console.error('Failed scanning shadow drafts:', err);
+    } finally {
+      setIsScanningDrafts(false);
+    }
+  };
+
+  const handleSendShadowDraft = async (draftId: string) => {
+    try {
+      const res = await fetch('/api/assistant/shadow-drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'send', draftId })
+      });
+      if (res.ok) {
+        const drfRes = await fetch('/api/assistant/shadow-drafts');
+        if (drfRes.ok) {
+          const drfData = await drfRes.json();
+          setShadowDrafts(drfData.drafts || []);
+        }
+      }
+    } catch (err) {
+      console.error('Failed sending shadow draft:', err);
+    }
+  };
+
+  const handleDiscardShadowDraft = async (draftId: string) => {
+    try {
+      const res = await fetch('/api/assistant/shadow-drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'discard', draftId })
+      });
+      if (res.ok) {
+        const drfRes = await fetch('/api/assistant/shadow-drafts');
+        if (drfRes.ok) {
+          const drfData = await drfRes.json();
+          setShadowDrafts(drfData.drafts || []);
+        }
+      }
+    } catch (err) {
+      console.error('Failed discarding shadow draft:', err);
+    }
+  };
+
+  const handleSyncFederatedCalendars = async () => {
+    try {
+      const res = await fetch('/api/calendar/federation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'sync' })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFederatedBusyBlocks(data.blocks || []);
+      }
+    } catch (err) {
+      console.error('Failed syncing federated calendars:', err);
     }
   };
 
@@ -1392,6 +1512,10 @@ export default function AssistantApp() {
             <div className="max-h-80 overflow-y-auto p-2 space-y-1 text-xs">
               {[
                 { label: 'Run Morning Briefing Routine', action: () => { setActiveTab('briefing'); handleTriggerRoutine('morning_briefing'); } },
+                { label: 'Phase 9: Auto-Resolve All Schedule & Expense Conflicts', action: () => handleAutoResolveConflicts() },
+                { label: 'Phase 9: Scan Inbox & Generate In-Voice Shadow Drafts', action: () => handleScanShadowDrafts() },
+                { label: 'Phase 9: Sync Personal Calendar & Project Masked Busy Blocks', action: () => handleSyncFederatedCalendars() },
+                { label: 'Phase 9: Extract Commitments from Meeting Audio / Transcript', action: () => { setActiveTab('chat'); handleSendMessage('Process meeting audio and extract action item commitments'); } },
                 { label: 'Scan for Schedule, Travel & Expense Conflicts', action: () => { setActiveTab('chat'); handleSendMessage('Scan my calendar, travel, and expenses for conflicts and anomalies'); } },
                 { label: 'Multi-Agent: Check Flight DL 428 and then Find 30m Slot Tomorrow', action: () => { setActiveTab('chat'); handleSendMessage('Check my flight status for DL 428 and then find a 30 minute open slot tomorrow'); } },
                 { label: 'Jump to Integrations & Open-Weight Ollama Setup', action: () => setActiveTab('integrations') },
@@ -2156,7 +2280,20 @@ export default function AssistantApp() {
                     <AlertTriangle className="w-4 h-4 text-amber-600" />
                     Proactive Conflict & Anomaly Radar ({conflicts.length})
                   </h3>
+                  <button
+                    type="button"
+                    disabled={isResolvingConflicts}
+                    onClick={handleAutoResolveConflicts}
+                    className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-[11px] font-semibold transition"
+                  >
+                    {isResolvingConflicts ? 'Resolving...' : '⚡ Auto-Resolve All'}
+                  </button>
                 </div>
+                {conflictResolveMessage && (
+                  <div className="p-2 rounded-lg bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200 text-[11px]">
+                    {conflictResolveMessage}
+                  </div>
+                )}
                 <div className="space-y-2">
                   {conflicts.slice(0, 4).map((conf: any) => (
                     <div
@@ -2167,21 +2304,113 @@ export default function AssistantApp() {
                         <div className="font-bold text-zinc-800 dark:text-zinc-200">{conf.title}</div>
                         <div className="text-[11px] text-zinc-500">{conf.description}</div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveTab('chat');
-                          handleSendMessage(conf.suggestedPrompt);
-                        }}
-                        className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-semibold transition shrink-0"
-                      >
-                        Resolve via Assistant
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await fetch('/api/assistant/conflicts/resolve', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ conflictId: conf.id })
+                            });
+                            const confRes = await fetch('/api/assistant/conflicts');
+                            if (confRes.ok) {
+                              const confData = await confRes.json();
+                              setConflicts(confData.conflicts || []);
+                            }
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold transition shrink-0"
+                        >
+                          Auto-Fix
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveTab('chat');
+                            handleSendMessage(conf.suggestedPrompt);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-[11px] font-semibold transition shrink-0"
+                        >
+                          Plan Fix
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
+
+            {/* Shadow Executive Drafts & Zero-Touch Inbox */}
+            <div className="p-4 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/20 border border-indigo-200/70 dark:border-indigo-900/50 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-indigo-600" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-800 dark:text-indigo-300">
+                    Shadow Executive Drafts ({shadowDrafts.filter(d => d.status === 'pending_review').length} pending)
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isScanningDrafts}
+                    onClick={handleScanShadowDrafts}
+                    className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-[11px] font-semibold transition"
+                  >
+                    {isScanningDrafts ? 'Scanning...' : 'Scan & Prepare Drafts'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSyncFederatedCalendars}
+                    className="px-2.5 py-1 rounded-lg bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 text-[11px] font-semibold transition"
+                  >
+                    Sync Personal Calendar {federatedBusyBlocks.length > 0 ? `(${federatedBusyBlocks.length} masked)` : ''}
+                  </button>
+                </div>
+              </div>
+
+              {shadowDrafts.filter(d => d.status === 'pending_review').length === 0 ? (
+                <div className="text-xs text-zinc-500 py-1">
+                  All actionable inquiries are addressed. Tap &quot;Scan &amp; Prepare Drafts&quot; to inspect unread VIP emails.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {shadowDrafts.filter(d => d.status === 'pending_review').slice(0, 3).map((drf: any) => (
+                    <div
+                      key={drf.id}
+                      className="p-3 rounded-xl bg-white dark:bg-zinc-900 border border-indigo-200/70 dark:border-indigo-800/50 flex flex-wrap items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="space-y-0.5 max-w-xl">
+                        <div className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-2">
+                          <span>To: {drf.recipient}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-mono">
+                            {drf.subject}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-zinc-500 line-clamp-2 italic">
+                          &quot;{drf.proposedBody}&quot;
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSendShadowDraft(drf.id)}
+                          className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold transition"
+                        >
+                          Approve &amp; Send
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDiscardShadowDraft(drf.id)}
+                          className="px-2.5 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400 text-[11px] font-semibold transition"
+                        >
+                          Discard
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* KPI Metrics Grid */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
